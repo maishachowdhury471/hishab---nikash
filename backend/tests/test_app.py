@@ -247,3 +247,178 @@ def test_advice_returns_2_to_4_items():
 def test_advice_empty_month():
     s = client.get(f"/api/summary?month={THIS_MONTH}").json()
     assert 2 <= len(s["advice"]) <= 4
+
+
+# ---------------------------------------------------------------- reminders
+def _vapid_keys():
+    """Real VAPID pair (base64url) for tests that need push configured."""
+    import base64
+    from pywebpush import Vapid
+
+    def b64(raw):
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    v = Vapid()
+    v.generate_keys()
+    priv = v.private_key.private_numbers().private_value.to_bytes(32, "big")
+    pubn = v.public_key.public_numbers()
+    pub = b"\x04" + pubn.x.to_bytes(32, "big") + pubn.y.to_bytes(32, "big")
+    return b64(pub), b64(priv)
+
+
+def _set_env(**kw):
+    old = {k: os.environ.get(k) for k in kw}
+    for k, v in kw.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    return old
+
+
+def _restore_env(old):
+    for k, v in old.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+def test_reminder_status_no_entries():
+    st = client.get("/api/reminders/status").json()
+    assert st["due"] is False
+    assert st["last_entry_date"] is None
+    assert st["missed_dates"] == [] and st["missed_count"] == 0
+
+
+def test_reminder_due_when_last_entry_3_days_ago():
+    _add({"type": "expense", "amount": 100, "category": "bazar",
+          "note": "", "date": (TODAY - timedelta(days=3)).isoformat()})
+    st = client.get("/api/reminders/status").json()
+    assert st["due"] is True
+    assert st["days_since_last_entry"] == 3
+    assert st["missed_dates"] == [
+        (TODAY - timedelta(days=2)).isoformat(),
+        (TODAY - timedelta(days=1)).isoformat()]
+    assert st["missed_count"] == 2
+    assert st["due_at"].endswith("T09:00:00")  # 9 AM Dhaka on latest missed day
+
+
+def test_reminder_not_due_when_entry_yesterday_or_today():
+    _add({"type": "expense", "amount": 100, "category": "bazar",
+          "note": "", "date": (TODAY - timedelta(days=1)).isoformat()})
+    st = client.get("/api/reminders/status").json()
+    assert st["due"] is False and st["missed_dates"] == []
+    setup_function()
+    _add({"type": "income", "amount": 100, "category": "beton",
+          "note": "", "date": TODAY.isoformat()})
+    st = client.get("/api/reminders/status").json()
+    assert st["due"] is False
+
+
+def test_trigger_requires_secret():
+    old = _set_env(REMINDER_SECRET=None)
+    try:
+        r = client.post("/api/reminders/trigger",
+                        headers={"X-Reminder-Secret": "whatever"})
+        assert r.status_code == 503  # no secret configured at all
+    finally:
+        _restore_env(old)
+    old = _set_env(REMINDER_SECRET="test-secret")
+    try:
+        assert client.post("/api/reminders/trigger").status_code == 401
+        r = client.post("/api/reminders/trigger",
+                        headers={"X-Reminder-Secret": "wrong"})
+        assert r.status_code == 401
+    finally:
+        _restore_env(old)
+
+
+def test_push_subscribe_unsubscribe_roundtrip():
+    sub = {"endpoint": "https://example.com/push/abc123",
+           "keys": {"p256dh": "p256dh-value", "auth": "auth-value"}}
+    r = client.post("/api/push/subscribe",
+                    json={"device_id": "dev-1", "subscription": sub})
+    assert r.status_code == 201 and r.json()["subscribed"] is True
+    # Same endpoint again → update, not a second row.
+    r2 = client.post("/api/push/subscribe",
+                     json={"device_id": "dev-1", "subscription": sub})
+    assert r2.json()["updated"] is True
+    r = client.post("/api/push/unsubscribe",
+                    json={"endpoint": "https://example.com/push/abc123"})
+    assert r.json()["unsubscribed"] == 1
+    r = client.post("/api/push/unsubscribe",
+                    json={"endpoint": "https://example.com/push/abc123"})
+    assert r.json()["unsubscribed"] == 0
+
+
+def test_trigger_dedup_and_history():
+    pub, priv = _vapid_keys()
+    old = _set_env(REMINDER_SECRET="test-secret", VAPID_PUBLIC_KEY=pub,
+                   VAPID_PRIVATE_KEY=priv,
+                   VAPID_SUBJECT="mailto:test@example.com")
+    try:
+        _add({"type": "expense", "amount": 100, "category": "bazar",
+              "note": "", "date": (TODAY - timedelta(days=3)).isoformat()})
+        # Fake endpoint on a closed local port — send fails fast, no network.
+        sub = {"endpoint": "https://127.0.0.1:9/push/fake",
+               "keys": {"p256dh": "BOGUSp256dhKEYAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "auth": "BOGUSauthKEYAAAAAAA"}}
+        assert client.post("/api/push/subscribe", json={
+            "device_id": "dev-9", "subscription": sub}).status_code == 201
+        h = {"X-Reminder-Secret": "test-secret"}
+        first = client.post("/api/reminders/trigger", headers=h).json()
+        assert first["due"] is True
+        assert first["sent"] == 0 and first["failed"] == 1
+        assert first["skipped"] == 0 and first["subscriptions"] == 1
+        # Second trigger the same day must NOT send again (de-dup).
+        second = client.post("/api/reminders/trigger", headers=h).json()
+        assert second["sent"] == 0 and second["failed"] == 0
+        assert second["skipped"] == 1
+        hist = client.get("/api/reminders/history").json()
+        assert len(hist) == 1
+        row = hist[0]
+        assert row["status"] == "failed" and row["channel"] == "push"
+        assert row["due_at"].endswith("T09:00:00")
+        assert row["sent_at"] is not None
+        assert "আজকের হিসাব" in row["message"]
+    finally:
+        _restore_env(old)
+
+
+def test_trigger_not_due_sends_nothing():
+    old = _set_env(REMINDER_SECRET="test-secret")
+    try:
+        _add({"type": "expense", "amount": 100, "category": "bazar",
+              "note": "", "date": TODAY.isoformat()})
+        d = client.post("/api/reminders/trigger",
+                        headers={"X-Reminder-Secret": "test-secret"}).json()
+        assert d["due"] is False and d["sent"] == 0
+    finally:
+        _restore_env(old)
+
+
+def test_reminder_shown_records_local_catchup():
+    due_at = (TODAY - timedelta(days=1)).isoformat() + "T09:00:00"
+    r = client.post("/api/reminders/shown", json={
+        "device_id": "dev-1", "due_at": due_at, "channel": "local"})
+    assert r.status_code == 201 and r.json()["recorded"] is True
+    # Same device + same due date again → not recorded twice.
+    r = client.post("/api/reminders/shown", json={
+        "device_id": "dev-1", "due_at": due_at, "channel": "local"})
+    assert r.json()["recorded"] is False
+    hist = client.get("/api/reminders/history").json()
+    assert len(hist) == 1
+    assert hist[0]["channel"] == "local" and hist[0]["status"] == "shown"
+    assert hist[0]["due_at"] == due_at
+
+
+def test_config_push_disabled_without_keys():
+    old = _set_env(VAPID_PUBLIC_KEY=None, VAPID_PRIVATE_KEY=None)
+    try:
+        cfg = client.get("/api/config").json()
+        assert cfg["push_enabled"] is False
+        assert cfg["vapid_public_key"] is None
+        assert cfg["reminder_hour"] == 9
+    finally:
+        _restore_env(old)

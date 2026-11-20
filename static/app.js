@@ -43,6 +43,26 @@ const I18N = {
     edit: "সম্পাদনা", del: "মুছুন", confirmDelTitle: "এই হিসাবটি মুছে ফেলবেন?", confirmDelText: "মুছে ফেললে এই হিসাবটি আর ফিরে আসবে না।",
     developedBy: "এই অ্যাপটি ডেভেলপ করেছেন", themeDarkLabel: "ডার্ক মোড চালু করুন", themeLightLabel: "লাইট মোড চালু করুন",
     totalDay: "মোট", vsLast: "গত মাসের চেয়ে", noChange: "পরিবর্তন নেই",
+    notifyTitle: "প্রতিদিনের হিসাবের রিমাইন্ডার",
+    notifyText: "১ দিনের বেশি হিসাব না লিখলে সকাল ৯টায় মনে করিয়ে দেওয়া হবে — “আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে, এখনই হিসাব লিখে ফেলো।”",
+    notifyLimit: "সত্য কথা: ফোনের Chrome পুরোপুরি বন্ধ থাকলে আর ইন্টারনেট না থাকলে নোটিফিকেশন ঠিক সময়ে আসতে পারে না — এটা PWA-এর সীমা। তবে অ্যাপ খুললেই বা ইন্টারনেট ফিরলেই ছুটে যাওয়া রিমাইন্ডারটি আসল সময়সহ দেখিয়ে দেওয়া হবে।",
+    notifyEnable: "রিমাইন্ডার চালু করো", notifyDisable: "রিমাইন্ডার বন্ধ করো",
+    notifyOn: "✅ রিমাইন্ডার চালু আছে — ১ দিনের বেশি হিসাব না লিখলে সকাল ৯টায় নোটিফিকেশন আসবে।",
+    notifyOff: "রিমাইন্ডার বন্ধ আছে।",
+    notifyNeedPermission: "নোটিফিকেশনের অনুমতি দিলে তবেই রিমাইন্ডার আসবে — ব্রাউজারের অনুমতির বাক্সে Allow চাপুন।",
+    notifyDenied: "নোটিফিকেশনের অনুমতি বন্ধ করা আছে — ব্রাউজারের সাইট সেটিংস থেকে অনুমতি দিলে রিমাইন্ডার চালু হবে।",
+    notifyUnsupported: "এই ব্রাউজারে পুশ নোটিফিকেশন চলে না — তবে অ্যাপ খুললেই ছুটে যাওয়া দিনের রিমাইন্ডার দেখতে পাবেন।",
+    notifyNoServerPush: "সার্ভারের পুশ এখনো সেট হয়নি — তবু অ্যাপ খোলা থাকলে বা ইন্টারনেট ফিরলে রিমাইন্ডার দেখাবে।",
+    missedTitle: "⚠️ আজকের হিসাব এখনো লেখা হয়নি",
+    missedText: "এই দিনগুলোর হিসাব লেখা হয়নি:",
+    missedBtn: "আজকের হিসাব লিখুন",
+    historyTitle: "রিমাইন্ডারের ইতিহাস",
+    historyEmpty: "এখনো কোনো রিমাইন্ডার আসেনি।",
+    reminderShort: "দৈনন্দিন হিসাবের রিমাইন্ডার",
+    reminderMsg: "আজকের হিসাব কি লিখেছো? আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে — এখনই অ্যাপে ঢুকে আজকের খরচ বা আয় লিখে ফেলো।",
+    dueWas: "আসার কথা ছিল", sentAt: "পাঠানো হয়েছে",
+    viaPush: "পুশ নোটিফিকেশন", viaLocal: "অ্যাপ খুলে দেখানো হয়েছে",
+    agoNow: "এখনই", agoMin: "মিনিট আগে", agoHour: "ঘণ্টা আগে", agoDay: "দিন আগে",
   },
   en: {
     appTitle: "AI Hisab Nikash", appSubtitle: "Smart daily income-expense tracker",
@@ -68,6 +88,26 @@ const I18N = {
     edit: "Edit", del: "Delete", confirmDelTitle: "Delete this entry?", confirmDelText: "Once deleted, this entry cannot be recovered.",
     developedBy: "Developed by", themeDarkLabel: "Switch to dark mode", themeLightLabel: "Switch to light mode",
     totalDay: "Total", vsLast: "vs last month", noChange: "No change",
+    notifyTitle: "Daily accounts reminder",
+    notifyText: "If you don't write any accounts for more than 1 day, you will be reminded at 9 AM — “Today is part of your daily accounts too, write today's accounts now.”",
+    notifyLimit: "Honest limit: if Chrome is fully closed on your phone and there is no internet, the notification may not arrive on time — that is a PWA limit. But as soon as you open the app or the internet returns, the missed reminder will be shown with its original time.",
+    notifyEnable: "Turn on reminders", notifyDisable: "Turn off reminders",
+    notifyOn: "✅ Reminders are on — if you don't write any accounts for more than 1 day, a notification will come at 9 AM.",
+    notifyOff: "Reminders are off.",
+    notifyNeedPermission: "Reminders need notification permission — press Allow in the browser prompt.",
+    notifyDenied: "Notification permission is blocked — allow it in the browser's site settings to turn reminders on.",
+    notifyUnsupported: "Push notifications don't work in this browser — but opening the app will still show you any missed-day reminder.",
+    notifyNoServerPush: "Server push is not set up yet — reminders will still show when you open the app or when the internet returns.",
+    missedTitle: "⚠️ Today's accounts are not written yet",
+    missedText: "No accounts were written on these days:",
+    missedBtn: "Write today's accounts",
+    historyTitle: "Reminder history",
+    historyEmpty: "No reminders yet.",
+    reminderShort: "Daily accounts reminder",
+    reminderMsg: "Have you written today's accounts yet? Today is part of your daily accounts too — open the app now and write today's expense or income.",
+    dueWas: "Was due", sentAt: "Sent",
+    viaPush: "Push notification", viaLocal: "Shown when the app opened",
+    agoNow: "just now", agoMin: "min ago", agoHour: "hours ago", agoDay: "days ago",
   },
 };
 
@@ -190,6 +230,7 @@ $("entryForm").addEventListener("submit", async (e) => {
   if (!res.ok) { alert(await res.text()); return; }
   resetForm();
   loadAll();
+  checkReminders();
 });
 
 function startEdit(entry) {
@@ -304,6 +345,7 @@ function renderAll() {
   $("monthInput").value = curMonth;
   renderList();
   renderSummary();
+  renderReminderSection();
 }
 function renderList() {
   const list = $("entryList");
@@ -426,8 +468,257 @@ async function loadAll() {
   ]);
   entriesCache = eRes.ok ? await eRes.json() : [];
   summaryCache = sRes.ok ? await sRes.json() : null;
+  // Remember the newest entry date on this device so the missed-days
+  // card can work fully offline (status API refines it when online).
+  if (entriesCache.length) {
+    const maxDate = entriesCache.reduce((m, e) => (e.date > m ? e.date : m), entriesCache[0].date);
+    try {
+      const stored = localStorage.getItem("hn-last-entry-date");
+      if (!stored || maxDate > stored) localStorage.setItem("hn-last-entry-date", maxDate);
+    } catch (e) { /* ignore */ }
+  }
   renderAll();
 }
+
+/* ---------------- daily reminders ----------------
+   Layers (honest): server Web Push (daily cron trigger) when online;
+   in-app + catch-up check on every load and on 'online'; Background Sync
+   in the service worker when connectivity returns; fully-offline local
+   check from the last known entry date stored on this device. */
+let reminderStatusCache = null;
+let reminderHistoryCache = [];
+
+function deviceId() {
+  let id = null;
+  try { id = localStorage.getItem("hn-device-id"); } catch (e) { /* ignore */ }
+  if (!id) {
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : "dev-" + Date.now() + "-" + Math.floor(Math.random() * 1e9);
+    try { localStorage.setItem("hn-device-id", id); } catch (e) { /* ignore */ }
+  }
+  return id;
+}
+function urlB64ToUint8(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+function fmtDateTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const months = { bn: ["জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন", "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"], en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] };
+  const day = lang === "bn" ? toBn(d.getDate()) : d.getDate();
+  const year = lang === "bn" ? toBn(d.getFullYear()) : d.getFullYear();
+  const h = d.getHours(), m = String(d.getMinutes()).padStart(2, "0");
+  const h12 = h % 12 || 12;
+  const time = lang === "bn"
+    ? `${h < 12 ? "সকাল" : h < 16 ? "দুপুর" : h < 18 ? "বিকেল" : h < 20 ? "সন্ধ্যা" : "রাত"} ${toBn(h12)}:${toBn(m)}`
+    : `${h12}:${m} ${h < 12 ? "AM" : "PM"}`;
+  return `${day} ${months[lang][d.getMonth()]} ${year}, ${time}`;
+}
+function relTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (isNaN(diff) || diff < 60000) return t("agoNow");
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${lang === "bn" ? toBn(mins) : mins} ${t("agoMin")}`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${lang === "bn" ? toBn(hrs) : hrs} ${t("agoHour")}`;
+  const days = Math.floor(hrs / 24);
+  return `${lang === "bn" ? toBn(days) : days} ${t("agoDay")}`;
+}
+
+function renderMissed(st) {
+  const card = $("missedCard");
+  if (!st || !st.missed_dates || !st.missed_dates.length) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+  $("missedDates").textContent = t("missedText") + " " +
+    st.missed_dates.map((d) => fmtDate(d)).join(", ");
+}
+function localMissedCheck() {
+  // Fully offline: last known entry date lives on this device.
+  let last = null;
+  try { last = localStorage.getItem("hn-last-entry-date"); } catch (e) { /* ignore */ }
+  if (!last) { renderMissed(null); return; }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const missed = [];
+  for (let d = new Date(new Date(last + "T00:00:00").getTime() + 86400000);
+       d < today; d = new Date(d.getTime() + 86400000)) {
+    missed.push(d.toISOString().slice(0, 10));
+  }
+  if (!missed.length) { renderMissed(null); return; }
+  renderMissed({ missed_dates: missed, due_at: missed[missed.length - 1] + "T09:00:00" });
+}
+function renderReminderHistory(items) {
+  const ul = $("reminderHistory");
+  ul.innerHTML = "";
+  $("emptyHistory").classList.toggle("hidden", items.length > 0);
+  items.forEach((it) => {
+    const li = document.createElement("li");
+    li.className = "bg-gray-50 rounded-lg p-3";
+    const when = it.sent_at || it.due_at;
+    let html = `<div class="font-semibold">🔔 ${escapeHtml(t("reminderShort"))}</div>`;
+    if (when) html += `<div>${t("sentAt")}: ${escapeHtml(fmtDateTime(when))} • ${escapeHtml(relTime(when))}</div>`;
+    if (it.due_at && it.due_at !== it.sent_at) {
+      html += `<div class="text-gray-500">${t("dueWas")}: ${escapeHtml(fmtDateTime(it.due_at))} • ${escapeHtml(relTime(it.due_at))}</div>`;
+    }
+    html += `<div class="text-xs text-gray-400 mt-1">${escapeHtml(it.channel === "push" ? t("viaPush") : t("viaLocal"))}</div>`;
+    li.innerHTML = html;
+    ul.appendChild(li);
+  });
+}
+function renderReminderSection() {
+  if (reminderStatusCache) renderMissed(reminderStatusCache.due ? reminderStatusCache : null);
+  else localMissedCheck();
+  renderReminderHistory(reminderHistoryCache);
+}
+
+async function showCatchUpReminder(st) {
+  // A reminder that was due while offline, shown now with its ORIGINAL time.
+  const body = `${t("reminderMsg")}\n${t("dueWas")}: ${fmtDateTime(st.due_at)} (${relTime(st.due_at)})`;
+  try {
+    if ("serviceWorker" in navigator && Notification.permission === "granted") {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification("AI হিসাব নিকাশ", {
+        body, icon: "/static/icon-192.png", badge: "/static/icon.svg",
+        tag: "hn-daily-reminder",
+      });
+      return true;
+    }
+  } catch (e) { /* in-app missed card still shows it */ }
+  return false;
+}
+
+async function checkReminders() {
+  localMissedCheck();
+  if (!navigator.onLine) return;
+  try {
+    const res = await fetch("/api/reminders/status");
+    if (!res.ok) return;
+    const st = await res.json();
+    reminderStatusCache = st;
+    if (st.last_entry_date) {
+      try { localStorage.setItem("hn-last-entry-date", st.last_entry_date); } catch (e) { /* ignore */ }
+    }
+    renderMissed(st.due ? st : null);
+    const hRes = await fetch("/api/reminders/history");
+    if (hRes.ok) {
+      reminderHistoryCache = await hRes.json();
+      renderReminderHistory(reminderHistoryCache);
+    }
+    if (st.due && st.due_at) {
+      let lastShown = null;
+      try { lastShown = localStorage.getItem("hn-last-shown-reminder"); } catch (e) { /* ignore */ }
+      if (lastShown !== st.due_at) {
+        await showCatchUpReminder(st);
+        try { localStorage.setItem("hn-last-shown-reminder", st.due_at); } catch (e) { /* ignore */ }
+        // Record it so the history shows the exact due + shown times.
+        try {
+          await fetch("/api/reminders/shown", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device_id: deviceId(), due_at: st.due_at, channel: "local" }),
+          });
+          const r2 = await fetch("/api/reminders/history");
+          if (r2.ok) { reminderHistoryCache = await r2.json(); renderReminderHistory(reminderHistoryCache); }
+        } catch (e) { /* history is best-effort */ }
+      }
+    }
+    // Ask the service worker to re-run this check when connectivity returns.
+    if ("serviceWorker" in navigator && "SyncManager" in window) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.sync.register("hn-reminder-check");
+      } catch (e) { /* sync not supported — load/online checks still run */ }
+    }
+  } catch (e) { /* offline — local check already ran */ }
+}
+
+function updateNotifyUI() {
+  const enableBtn = $("notifyEnableBtn"), disableBtn = $("notifyDisableBtn");
+  const statusEl = $("notifyStatus");
+  const supported = ("Notification" in window) && ("serviceWorker" in navigator) && ("PushManager" in window);
+  let on = false;
+  try { on = localStorage.getItem("hn-reminders-on") === "1"; } catch (e) { /* ignore */ }
+  if (!supported) {
+    statusEl.textContent = t("notifyUnsupported");
+    enableBtn.classList.add("hidden"); disableBtn.classList.add("hidden");
+    return;
+  }
+  if (Notification.permission === "denied") {
+    statusEl.textContent = t("notifyDenied");
+    enableBtn.classList.remove("hidden"); disableBtn.classList.add("hidden");
+    return;
+  }
+  if (on && Notification.permission === "granted") {
+    statusEl.textContent = t("notifyOn");
+    enableBtn.classList.add("hidden"); disableBtn.classList.remove("hidden");
+  } else {
+    statusEl.textContent = t("notifyOff");
+    enableBtn.classList.remove("hidden"); disableBtn.classList.add("hidden");
+  }
+}
+
+async function enableReminders() {
+  const statusEl = $("notifyStatus");
+  if (!("Notification" in window)) { statusEl.textContent = t("notifyUnsupported"); return; }
+  let perm = Notification.permission;
+  if (perm === "default") perm = await Notification.requestPermission();
+  if (perm !== "granted") { statusEl.textContent = t("notifyNeedPermission"); updateNotifyUI(); return; }
+  try {
+    const cfg = await (await fetch("/api/config")).json();
+    if (!cfg.push_enabled || !cfg.vapid_public_key) {
+      // No server push yet — local + catch-up reminders still work.
+      statusEl.textContent = t("notifyNoServerPush");
+      try { localStorage.setItem("hn-reminders-on", "1"); } catch (e) { /* ignore */ }
+      updateNotifyUI();
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8(cfg.vapid_public_key),
+      });
+    }
+    await fetch("/api/push/subscribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId(), subscription: sub.toJSON() }),
+    });
+    try { localStorage.setItem("hn-reminders-on", "1"); } catch (e) { /* ignore */ }
+  } catch (e) { statusEl.textContent = t("notifyNoServerPush"); }
+  updateNotifyUI();
+}
+async function disableReminders() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await fetch("/api/push/unsubscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: deviceId(), endpoint: sub.endpoint }),
+      });
+      await sub.unsubscribe();
+    }
+  } catch (e) { /* ignore */ }
+  try { localStorage.removeItem("hn-reminders-on"); } catch (e) { /* ignore */ }
+  updateNotifyUI();
+}
+$("notifyEnableBtn").addEventListener("click", enableReminders);
+$("notifyDisableBtn").addEventListener("click", disableReminders);
+$("missedGoBtn").addEventListener("click", () => {
+  $("entryDate").value = new Date().toISOString().slice(0, 10);
+  $("entryForm").scrollIntoView({ behavior: "smooth" });
+  $("amount").focus();
+});
+window.addEventListener("online", checkReminders);
+// Relative times ("৩ ঘণ্টা আগে") age live; local missed check re-runs.
+setInterval(() => { renderReminderHistory(reminderHistoryCache); localMissedCheck(); }, 60000);
 
 // PWA: register service worker.
 if ("serviceWorker" in navigator) {
@@ -439,3 +730,5 @@ if ("serviceWorker" in navigator) {
 resetForm();
 applyLang();
 loadAll();
+updateNotifyUI();
+checkReminders();

@@ -8,15 +8,23 @@ API (prefix /api):
   DELETE /api/entries/{id}
   GET    /api/summary?month=YYYY-MM&lang=bn|en
   POST   /api/parse
+  GET    /api/config                        (VAPID public key / push status)
+  POST   /api/push/subscribe
+  POST   /api/push/unsubscribe
+  GET    /api/reminders/status              (last entry, missed days, due?)
+  GET    /api/reminders/history             (sent reminders, exact times)
+  POST   /api/reminders/trigger             (X-Reminder-Secret header)
+  POST   /api/reminders/shown               (record a locally shown reminder)
 Frontend served at / ; manifest at /manifest.json ; sw.js at /sw.js.
 """
+import os
 import re
 from calendar import monthrange
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
@@ -24,8 +32,9 @@ from sqlalchemy.orm import Session
 
 from .advice import generate_advice
 from .database import Base, engine, get_db
-from .models import Entry
+from .models import Entry, PushSubscription, ReminderLog
 from .parser import parse_text
+from . import reminders as rem
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 STATIC_DIR = BASE_DIR / "static"
@@ -228,6 +237,162 @@ def summary(month: str, lang: str = "bn", db: Session = Depends(get_db)):
         "overspend": overspend,
         "advice": advice,
     }
+
+
+# ---------------------------------------------------------------- reminders
+class PushSubscribeIn(BaseModel):
+    device_id: str = ""
+    subscription: dict = {}
+
+
+class PushUnsubscribeIn(BaseModel):
+    device_id: str = ""
+    endpoint: str = ""
+
+
+class ReminderShownIn(BaseModel):
+    device_id: str = ""
+    due_at: str = ""
+    channel: str = "local"
+
+
+@app.get("/api/config")
+def config():
+    return {"vapid_public_key": rem.vapid_public_key(),
+            "push_enabled": rem.push_enabled(),
+            "reminder_hour": rem.REMINDER_HOUR}
+
+
+@app.post("/api/push/subscribe", status_code=201)
+def push_subscribe(payload: PushSubscribeIn, db: Session = Depends(get_db)):
+    sub = payload.subscription or {}
+    endpoint = sub.get("endpoint", "")
+    keys = sub.get("keys", {}) or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(status_code=400,
+                            detail="subscription needs endpoint + keys")
+    existing = db.query(PushSubscription).filter(
+        PushSubscription.endpoint == endpoint).first()
+    if existing:
+        existing.device_id = payload.device_id or existing.device_id
+        existing.p256dh, existing.auth = keys["p256dh"], keys["auth"]
+        db.commit()
+        return {"subscribed": True, "id": existing.id, "updated": True}
+    row = PushSubscription(device_id=payload.device_id, endpoint=endpoint,
+                           p256dh=keys["p256dh"], auth=keys["auth"],
+                           created_at=rem.now_dhaka())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"subscribed": True, "id": row.id, "updated": False}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(payload: PushUnsubscribeIn, db: Session = Depends(get_db)):
+    q = db.query(PushSubscription)
+    if payload.endpoint:
+        q = q.filter(PushSubscription.endpoint == payload.endpoint)
+    elif payload.device_id:
+        q = q.filter(PushSubscription.device_id == payload.device_id)
+    else:
+        raise HTTPException(status_code=400,
+                            detail="endpoint or device_id required")
+    n = q.delete()
+    db.commit()
+    return {"unsubscribed": n}
+
+
+@app.get("/api/reminders/status")
+def reminder_status(db: Session = Depends(get_db)):
+    st = rem.compute_status(db)
+    st["push_enabled"] = rem.push_enabled()
+    st["last_reminder"] = rem.last_reminder_out(db)
+    return st
+
+
+@app.get("/api/reminders/history")
+def reminder_history(db: Session = Depends(get_db)):
+    rows = (db.query(ReminderLog).order_by(ReminderLog.id.desc())
+            .limit(30).all())
+    return [rem.reminder_out(r) for r in rows]
+
+
+@app.post("/api/reminders/shown", status_code=201)
+def reminder_shown(payload: ReminderShownIn, db: Session = Depends(get_db)):
+    """Record a reminder the device showed locally (catch-up while the
+    server push never arrived). De-duplicated per device + due date."""
+    try:
+        from datetime import datetime as _dt
+        due_at = _dt.fromisoformat(payload.due_at)
+    except Exception:
+        raise HTTPException(status_code=400, detail="due_at must be ISO datetime")
+    if rem.already_logged_today(db, payload.device_id or None, due_at.date()):
+        return {"recorded": False, "reason": "already logged for this date"}
+    row = ReminderLog(device_id=payload.device_id or None, kind="daily",
+                      channel=payload.channel or "local", due_at=due_at,
+                      sent_at=rem.now_dhaka(), status="shown",
+                      message=rem.MESSAGE_BN)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"recorded": True, "id": row.id}
+
+
+@app.post("/api/reminders/trigger")
+def reminder_trigger(x_reminder_secret: str = Header(default=""),
+                     db: Session = Depends(get_db)):
+    """Daily cron entry point (cron-job.org calls this once a day).
+    Header: X-Reminder-Secret: <REMINDER_SECRET env value>."""
+    secret = os.environ.get("REMINDER_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503,
+                            detail="REMINDER_SECRET not configured")
+    if x_reminder_secret != secret:
+        raise HTTPException(status_code=401, detail="bad reminder secret")
+    now = rem.now_dhaka()
+    today = now.date()
+    st = rem.compute_status(db, now=now)
+    if not st["due"]:
+        return {"due": False, "sent": 0, "failed": 0, "skipped": 0,
+                "subscriptions": db.query(PushSubscription).count(),
+                "last_entry_date": st["last_entry_date"]}
+    due_at = rem.due_time_for(today)
+    subs = db.query(PushSubscription).all()
+    sent = failed = skipped = 0
+    dead_endpoints = []
+    for sub in subs:
+        if rem.already_logged_today(db, sub.device_id, today):
+            skipped += 1
+            continue
+        if not rem.push_enabled():
+            skipped += 1
+            continue
+        payload = {"title": rem.TITLE_BN, "body": rem.MESSAGE_BN,
+                   "due_at": due_at.isoformat(), "sent_at": now.isoformat(),
+                   "missed_dates": st["missed_dates"]}
+        try:
+            rem.send_push(sub, payload)
+            status = "sent"
+            sent += 1
+        except Exception as exc:
+            status = "failed"
+            failed += 1
+            # Expired/invalid push endpoint (410 Gone / 404) — stop trying it.
+            if "410" in str(exc) or "404" in str(exc):
+                dead_endpoints.append(sub.endpoint)
+        db.add(ReminderLog(device_id=sub.device_id, kind="daily",
+                           channel="push", due_at=due_at, sent_at=now,
+                           status=status, message=rem.MESSAGE_BN))
+        db.commit()
+    for endpoint in dead_endpoints:
+        db.query(PushSubscription).filter(
+            PushSubscription.endpoint == endpoint).delete()
+    db.commit()
+    return {"due": True, "due_date": today.isoformat(),
+            "sent": sent, "failed": failed, "skipped": skipped,
+            "subscriptions": len(subs),
+            "last_entry_date": st["last_entry_date"],
+            "missed_dates": st["missed_dates"]}
 
 
 # ---------------------------------------------------------------- frontend
