@@ -23,7 +23,9 @@ const I18N = {
     appTitle: "AI হিসাব নিকাশ", appSubtitle: "দৈনন্দিন আয়-ব্যয়ের স্মার্ট হিসাব",
     income: "আয়", expense: "খরচ", savings: "সঞ্চয়",
     aiQuick: "AI দ্রুত লিখন", aiQuickHint: "লিখুন বা বলুন — যেমন: “আজ বাজারে ৫০০ টাকা খরচ”",
-    aiPlaceholder: "যেমন: আজ বাজারে ৫০০ টাকা খরচ", parseBtn: "বুঝুন",
+    aiPlaceholder: "যেমন: আজ বাজারে ৫০০ টাকা খরচ",
+    parseBtnLabel: "AI দিয়ে বুঝে ফরমে বসান", micLabel: "ভয়েসে বলুন",
+    aiEnterHint: "Enter চাপলেও চলবে — ফরমে বসিয়ে যাচাই করে সংরক্ষণ করুন।",
     addEntry: "নতুন হিসাব যোগ করুন", editEntry: "হিসাব সম্পাদনা করুন",
     amount: "টাকার পরিমাণ (৳)", category: "খাত", date: "তারিখ", note: "নোট (ঐচ্ছিক)",
     notePh: "যেমন: বাজারে মাছ কিনলাম", save: "সংরক্ষণ করুন", cancel: "বাতিল",
@@ -45,7 +47,9 @@ const I18N = {
     appTitle: "AI Hisab Nikash", appSubtitle: "Smart daily income-expense tracker",
     income: "Income", expense: "Expense", savings: "Savings",
     aiQuick: "AI Quick Entry", aiQuickHint: "Type or speak — e.g. “আজ বাজারে ৫০০ টাকা খরচ”",
-    aiPlaceholder: "e.g. Bazar 500 taka today", parseBtn: "Understand",
+    aiPlaceholder: "e.g. Bazar 500 taka today",
+    parseBtnLabel: "Understand with AI and fill the form", micLabel: "Speak",
+    aiEnterHint: "Press Enter too — check the filled form, then save.",
     addEntry: "Add a new entry", editEntry: "Edit entry",
     amount: "Amount (Tk)", category: "Category", date: "Date", note: "Note (optional)",
     notePh: "e.g. Bought fish at the bazar", save: "Save", cancel: "Cancel",
@@ -97,6 +101,11 @@ function applyLang() {
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
   $("langToggle").textContent = lang === "bn" ? "English" : "বাংলা";
+  // Icon-only AI buttons: keep their accessible labels in sync with language.
+  $("aiParseBtn").setAttribute("aria-label", t("parseBtnLabel"));
+  $("aiParseBtn").setAttribute("title", t("parseBtnLabel"));
+  $("micBtn").setAttribute("aria-label", t("micLabel"));
+  $("micBtn").setAttribute("title", t("micLabel"));
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
   renderAll();
@@ -259,7 +268,7 @@ function renderList() {
     const dayInc = rows.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
     const dayExp = rows.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0);
     const head = document.createElement("div");
-    head.className = "flex justify-between items-center pt-3 pb-1";
+    head.className = "flex justify-between items-center gap-2 flex-wrap pt-3 pb-1";
     head.innerHTML = `<span class="font-semibold">${fmtDate(day)}</span>
       <span class="text-sm"><span class="text-emerald-700 font-semibold">+${fmtMoney(dayInc)}</span> <span class="text-red-600 font-semibold">−${fmtMoney(dayExp)}</span></span>`;
     list.appendChild(head);
@@ -267,13 +276,13 @@ function renderList() {
       const row = document.createElement("div");
       row.className = "flex items-center justify-between py-2 gap-2";
       row.innerHTML = `
-        <div class="min-w-0">
-          <div class="font-medium truncate">${CAT_NAME[lang][e.category] || e.category}${e.note ? ` — <span class="text-gray-500 font-normal">${escapeHtml(e.note)}</span>` : ""}</div>
+        <div class="min-w-0 flex-1">
+          <div class="font-medium break-words">${CAT_NAME[lang][e.category] || e.category}${e.note ? ` — <span class="text-gray-500 font-normal">${escapeHtml(e.note)}</span>` : ""}</div>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <span class="font-bold ${e.type === "income" ? "text-emerald-700" : "text-red-600"}">${e.type === "income" ? "+" : "−"}${fmtMoney(e.amount)}</span>
-          <button class="text-xs bg-gray-100 rounded px-2 py-1" data-act="edit">${t("edit")}</button>
-          <button class="text-xs bg-red-50 text-red-600 rounded px-2 py-1" data-act="del">${t("del")}</button>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <span class="font-bold whitespace-nowrap ${e.type === "income" ? "text-emerald-700" : "text-red-600"}">${e.type === "income" ? "+" : "−"}${fmtMoney(e.amount)}</span>
+          <button class="text-xs bg-gray-100 hover:bg-gray-200 rounded px-3 py-2 min-h-[40px]" data-act="edit">${t("edit")}</button>
+          <button class="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-3 py-2 min-h-[40px]" data-act="del">${t("del")}</button>
         </div>`;
       row.querySelector('[data-act="edit"]').addEventListener("click", () => startEdit(e));
       row.querySelector('[data-act="del"]').addEventListener("click", () => deleteEntry(e.id));
@@ -302,7 +311,7 @@ function renderSummary() {
     const isInc = CATS.income.includes(c);
     const row = document.createElement("div");
     row.innerHTML = `
-      <div class="flex justify-between text-sm"><span>${CAT_NAME[lang][c]}</span><span class="font-semibold">${fmtMoney(amt)}</span></div>
+      <div class="flex justify-between gap-2 text-sm"><span class="min-w-0 truncate">${CAT_NAME[lang][c]}</span><span class="font-semibold shrink-0 whitespace-nowrap">${fmtMoney(amt)}</span></div>
       <div class="bar-track h-3 mt-1"><div class="bar-fill ${isInc ? "bar-fill-inc" : "bar-fill-exp"}" style="width:${Math.round(amt / maxAmt * 100)}%"></div></div>`;
     bars.appendChild(row);
   });
@@ -337,8 +346,8 @@ function renderSummary() {
   const card = (label, val, pct) => {
     const pctTxt = pct == null ? t("noChange") : fmtPct(pct);
     const cls = pct == null ? "text-gray-500" : pct > 0 ? "text-red-600" : "text-emerald-700";
-    return `<div class="bg-gray-50 rounded-lg p-2"><div class="text-xs text-gray-500">${label}</div>
-      <div class="font-bold">${fmtMoney(val)}</div><div class="text-xs ${cls}">${pctTxt}</div></div>`;
+    return `<div class="bg-gray-50 rounded-lg p-2 min-w-0"><div class="text-[11px] sm:text-xs text-gray-500 truncate">${label}</div>
+      <div class="font-bold text-sm sm:text-base leading-snug break-words">${fmtMoney(val)}</div><div class="text-[11px] sm:text-xs ${cls}">${pctTxt}</div></div>`;
   };
   cards.innerHTML = card(t("income"), s.income, s.income_pct_change)
     + card(t("expense"), s.expense, s.expense_pct_change)
