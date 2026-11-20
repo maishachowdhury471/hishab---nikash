@@ -10,7 +10,7 @@
    Triggers in stable Chrome. The 'sync' + in-app checks make sure a missed
    reminder still shows as soon as the app opens or the internet returns,
    with its original due time. */
-const CACHE = "hisab-nikash-v3";
+const CACHE = "hisab-nikash-v4";
 const SHELL = ["/", "/static/app.js", "/static/icon.svg", "/manifest.json"];
 
 // The service worker cannot read localStorage — the page hands it the

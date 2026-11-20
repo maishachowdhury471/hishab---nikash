@@ -6,12 +6,21 @@ from .database import Base
 
 class User(Base):
     """One account per person — every entry, summary and reminder belongs
-    to exactly one user, so each person's data is fully separate."""
+    to exactly one user, so each person's data is fully separate.
+
+    Google-only login: every user signs in with Google (google_sub +
+    email set, auth_provider="google"). The password_hash column is a
+    leftover from the short-lived v6 username/password login — it is
+    never read or written by any code now, and it is NOT dropped from
+    the live database (no destructive migration)."""
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False, index=True)
-    password_hash = Column(String, nullable=False)
+    password_hash = Column(String, nullable=True)
+    email = Column(String, nullable=True, unique=True, index=True)
+    google_sub = Column(String, nullable=True, unique=True, index=True)
+    auth_provider = Column(String, nullable=False, default="google")
     created_at = Column(DateTime, nullable=False)
 
 

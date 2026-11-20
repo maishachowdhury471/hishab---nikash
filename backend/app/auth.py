@@ -1,7 +1,9 @@
-"""Username + password auth for AI Hisab Nikash.
+"""Google-only auth for AI Hisab Nikash.
 
-- Passwords are hashed with bcrypt (never stored in plain text).
-- Login returns a JWT (PyJWT, HS256) valid for 30 days.
+- There is NO username/password login: users sign in with Google only.
+- The server verifies every Google ID token with google-auth (signature,
+  audience = our client id, expiry) and then issues its own JWT (PyJWT,
+  HS256) valid for 30 days.
 - The JWT secret comes from the JWT_SECRET env var. If it is NOT set, a
   random secret is generated per boot and a warning is logged — logins then
   do NOT survive a server restart. Never hard-code a default secret.
@@ -9,11 +11,9 @@
 """
 import logging
 import os
-import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
-import bcrypt
 import jwt
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
@@ -25,7 +25,6 @@ log = logging.getLogger("hisab.auth")
 
 _ALGORITHM = "HS256"
 _TOKEN_DAYS = 30
-_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,30}$")
 
 _SECRET = None
 
@@ -46,38 +45,57 @@ def jwt_secret() -> str:
     return _SECRET
 
 
-def normalize_username(raw: str) -> str:
-    """Usernames are case-insensitive: stored and looked up lowercase."""
-    return (raw or "").strip().lower()
+# ---------------------------------------------------------------- Google
+def google_client_id() -> str:
+    """The Google OAuth client ID (from Google Cloud Console). Empty
+    until the parent sets GOOGLE_CLIENT_ID as a Railway Variable."""
+    return os.environ.get("GOOGLE_CLIENT_ID", "").strip()
 
 
-def validate_username(username: str):
-    if not _USERNAME_RE.fullmatch(username):
-        raise HTTPException(
-            status_code=400,
-            detail="username must be 3-30 characters: letters, digits, underscore")
-
-
-def validate_password(password: str):
-    if not password or len(password) < 4:
-        raise HTTPException(
-            status_code=400,
-            detail="password must be at least 4 characters")
-    if len(password) > 128:
-        raise HTTPException(status_code=400, detail="password too long")
-
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"),
-                         bcrypt.gensalt()).decode("utf-8")
-
-
-def verify_password(password: str, password_hash: str) -> bool:
+def google_auth_available() -> bool:
     try:
-        return bcrypt.checkpw(password.encode("utf-8"),
-                              password_hash.encode("utf-8"))
-    except Exception:
+        import google.auth  # noqa: F401
+        return True
+    except ImportError:
         return False
+
+
+def google_enabled() -> bool:
+    return bool(google_client_id()) and google_auth_available()
+
+
+def verify_google_token(id_token_str: str) -> dict:
+    """Verify a Google Identity Services ID token server-side and return
+    its payload (sub, email, email_verified, name, picture). Never trust
+    the token on the client alone — Google's library checks the signature,
+    audience (= our client id) and expiry. Kept as a module-level
+    function so tests can monkeypatch it with a fake payload."""
+    if not google_auth_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Google login is not set up yet (google-auth missing)")
+    client_id = google_client_id()
+    if not client_id:
+        raise HTTPException(
+            status_code=503,
+            detail="Google login is not set up yet (GOOGLE_CLIENT_ID missing)")
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+        payload = google_id_token.verify_oauth2_token(
+            id_token_str, google_requests.Request(), client_id)
+    except ValueError:
+        raise HTTPException(status_code=401,
+                            detail="invalid Google token")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401,
+                            detail="invalid Google token")
+    if payload.get("email_verified") is False:
+        raise HTTPException(status_code=401,
+                            detail="Google email is not verified")
+    return payload
 
 
 def create_token(user: User) -> str:

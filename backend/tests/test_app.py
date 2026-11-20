@@ -28,19 +28,36 @@ LAST_MONTH = (date(TODAY.year, TODAY.month, 1) - timedelta(days=1)).strftime("%Y
 AUTH = {}
 
 
+def _make_user(username, email=None, google_sub=None):
+    """Create a user straight in the DB (login is Google-only, so tests
+    cannot register through an endpoint) and return {user, token}."""
+    from backend.app import auth as authmod
+    from backend.app import reminders as rem
+    from backend.app.database import SessionLocal
+    from backend.app.models import User as UserModel
+
+    db = SessionLocal()
+    user = UserModel(
+        username=username,
+        email=email or f"{username}@example.com",
+        google_sub=google_sub or f"google-{username}",
+        auth_provider="google", created_at=rem.now_dhaka())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = authmod.create_token(user)
+    out = {"id": user.id, "username": user.username,
+           "email": user.email, "provider": user.auth_provider}
+    db.close()
+    return {"user": out, "token": token}
+
+
 def setup_function():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     # Every test starts with one logged-in user ("maisha").
     AUTH.clear()
-    AUTH.update(_register("maisha"))
-
-
-def _register(username, password="pass1234"):
-    r = client.post("/api/auth/register",
-                    json={"username": username, "password": password})
-    assert r.status_code == 201, r.text
-    return r.json()
+    AUTH.update(_make_user("maisha"))
 
 
 def _h(token=None):
@@ -445,36 +462,15 @@ def test_config_push_disabled_without_keys():
 
 
 # ---------------------------------------------------------------- accounts
-def test_register_login_roundtrip_and_me():
-    d = _register("roni", "secret99")
-    assert d["user"]["username"] == "roni" and d["token"]
-    r = client.post("/api/auth/login",
-                    json={"username": "roni", "password": "secret99"})
-    assert r.status_code == 200 and r.json()["token"]
-    me = client.get("/api/auth/me", headers=_h(r.json()["token"])).json()
-    assert me["user"]["username"] == "roni"
-
-
-def test_register_duplicate_and_invalid_username():
-    r = client.post("/api/auth/register",
-                    json={"username": "maisha", "password": "pass1234"})
-    assert r.status_code == 400  # already taken (setup user)
-    for bad in ["ab", "a" * 31, "maisha chowdhury", "maisha!"]:
-        r = client.post("/api/auth/register",
-                        json={"username": bad, "password": "pass1234"})
-        assert r.status_code == 400, bad
-    r = client.post("/api/auth/register",
-                    json={"username": "newuser", "password": "123"})
-    assert r.status_code == 400  # password too short
-
-
-def test_login_wrong_password_401():
-    r = client.post("/api/auth/login",
-                    json={"username": "maisha", "password": "wrongpass"})
-    assert r.status_code == 401
-    r = client.post("/api/auth/login",
-                    json={"username": "nouser", "password": "pass1234"})
-    assert r.status_code == 401
+def test_password_endpoints_are_gone():
+    # Login is Google-only: the old username/password endpoints no longer
+    # exist at all (404, not a silent failure).
+    assert client.post("/api/auth/register",
+                       json={"username": "x", "password": "y"}).status_code == 404
+    assert client.post("/api/auth/login",
+                       json={"username": "x", "password": "y"}).status_code == 404
+    me = client.get("/api/auth/me", headers=_h()).json()
+    assert me["user"]["username"] == "maisha"
 
 
 def test_unauthenticated_data_endpoints_401():
@@ -493,8 +489,8 @@ def test_unauthenticated_data_endpoints_401():
 
 
 def test_user_isolation_entries_and_summary():
-    a = _register("usera")
-    b = _register("userb")
+    a = _make_user("usera")
+    b = _make_user("userb")
     _add({"type": "expense", "amount": 500, "category": "bazar",
           "note": "A", "date": TODAY.isoformat()}, headers=_h(a["token"]))
     _add({"type": "income", "amount": 30000, "category": "beton",
@@ -515,8 +511,8 @@ def test_user_isolation_entries_and_summary():
 
 
 def test_cross_user_entry_access_404():
-    a = _register("usera")
-    b = _register("userb")
+    a = _make_user("usera")
+    b = _make_user("userb")
     created = _add({"type": "expense", "amount": 500, "category": "bazar",
                     "note": "", "date": TODAY.isoformat()},
                    headers=_h(a["token"]))
@@ -537,8 +533,8 @@ def test_cross_user_entry_access_404():
 
 
 def test_reminder_status_is_per_user():
-    a = _register("usera")
-    b = _register("userb")
+    a = _make_user("usera")
+    b = _make_user("userb")
     _add({"type": "expense", "amount": 100, "category": "bazar",
           "note": "", "date": (TODAY - timedelta(days=3)).isoformat()},
          headers=_h(a["token"]))
@@ -550,9 +546,99 @@ def test_reminder_status_is_per_user():
     assert st_b["due"] is False and st_b["last_entry_date"] is None
 
 
-def test_first_user_adopts_legacy_entries():
-    # Data saved before logins existed (user_id NULL) belongs to the FIRST
-    # account ever created — and to nobody else.
+# ---------------------------------------------------------------- Google sign-in
+def _fake_google(sub="google-123", email="ronitest@example.com"):
+    """A fake Google token verifier for tests (the real one calls Google)."""
+    def _verify(token):
+        assert token == "fake-google-id-token"
+        return {"sub": sub, "email": email, "email_verified": True,
+                "name": "Roni Test", "picture": ""}
+    return _verify
+
+
+def _google_login(monkeypatch, sub="google-123", email="ronitest@example.com"):
+    from backend.app import auth as authmod
+    monkeypatch.setattr(authmod, "verify_google_token",
+                        _fake_google(sub, email))
+    r = client.post("/api/auth/google",
+                    json={"id_token": "fake-google-id-token"})
+    return r
+
+
+def test_google_new_user_created(monkeypatch):
+    r = _google_login(monkeypatch)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["is_new"] is True and d["token"]
+    assert d["user"]["username"] == "ronitest"
+    assert d["user"]["provider"] == "google"
+    assert d["user"]["email"] == "ronitest@example.com"
+    me = client.get("/api/auth/me", headers=_h(d["token"])).json()
+    assert me["user"]["username"] == "ronitest"
+
+
+def test_google_signin_again_no_duplicate(monkeypatch):
+    first = _google_login(monkeypatch).json()
+    second = _google_login(monkeypatch).json()
+    assert second["is_new"] is False
+    assert second["user"]["id"] == first["user"]["id"]
+    assert second["token"]
+
+
+def test_google_links_existing_email(monkeypatch):
+    # An account created earlier with the same email but no Google
+    # identity yet (e.g. the short-lived v6 password account) gets the
+    # Google identity linked — same account, same data, no duplicate.
+    from backend.app.database import SessionLocal
+    from backend.app.models import User as UserModel
+
+    legacy = _make_user("linkuser", email="linkme@example.com",
+                        google_sub=None)
+    # Simulate the v6 account: Google identity not linked yet.
+    db = SessionLocal()
+    u = db.query(UserModel).filter(UserModel.id == legacy["user"]["id"]).first()
+    u.google_sub = None
+    u.auth_provider = "password"
+    db.commit()
+    db.close()
+    r = _google_login(monkeypatch, sub="google-999",
+                      email="linkme@example.com")
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["id"] == legacy["user"]["id"]
+    assert r.json()["is_new"] is False
+
+
+def test_google_missing_token_400():
+    r = client.post("/api/auth/google", json={})
+    assert r.status_code == 400
+    r = client.post("/api/auth/google", json={"id_token": "   "})
+    assert r.status_code == 400
+
+
+def test_google_invalid_token_401(monkeypatch):
+    from fastapi import HTTPException
+    from backend.app import auth as authmod
+
+    def _bad(token):
+        raise HTTPException(status_code=401, detail="invalid Google token")
+    monkeypatch.setattr(authmod, "verify_google_token", _bad)
+    r = client.post("/api/auth/google",
+                    json={"id_token": "fake-google-id-token"})
+    assert r.status_code == 401
+
+
+def test_google_not_configured_503(monkeypatch):
+    # No GOOGLE_CLIENT_ID in this test env (and no monkeypatched verifier)
+    # → the server refuses Google login honestly instead of crashing.
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    r = client.post("/api/auth/google",
+                    json={"id_token": "fake-google-id-token"})
+    assert r.status_code == 503
+
+
+def test_google_first_user_adopts_legacy_entries(monkeypatch):
+    # A Google sign-in that is the FIRST account ever also adopts the
+    # ownerless entries saved before logins existed.
     from backend.app.database import SessionLocal
     from backend.app.models import Entry as EntryModel
 
@@ -563,12 +649,8 @@ def test_first_user_adopts_legacy_entries():
                       note="legacy", date=TODAY))
     db.commit()
     db.close()
-    first = _register("firstuser")
+    d = _google_login(monkeypatch).json()
     rows = client.get(f"/api/entries?month={THIS_MONTH}",
-                      headers=_h(first["token"])).json()
+                      headers=_h(d["token"])).json()
     assert len(rows) == 1
     assert rows[0]["note"] == "legacy" and rows[0]["amount"] == 700
-    second = _register("seconduser")
-    rows2 = client.get(f"/api/entries?month={THIS_MONTH}",
-                       headers=_h(second["token"])).json()
-    assert rows2 == []

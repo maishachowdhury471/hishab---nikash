@@ -63,16 +63,10 @@ const I18N = {
     dueWas: "আসার কথা ছিল", sentAt: "পাঠানো হয়েছে",
     viaPush: "পুশ নোটিফিকেশন", viaLocal: "অ্যাপ খুলে দেখানো হয়েছে",
     agoNow: "এখনই", agoMin: "মিনিট আগে", agoHour: "ঘণ্টা আগে", agoDay: "দিন আগে",
-    authLogin: "লগইন", authRegister: "নতুন অ্যাকাউন্ট",
-    authIntro: "নিজের হিসাব আলাদা রাখতে লগইন করুন — প্রত্যেকের হিসাব শুধু তার নিজের কাছেই দেখা যাবে।",
-    authUsername: "ইউজারনেম", authPassword: "পাসওয়ার্ড",
-    authLoginBtn: "লগইন করুন", authRegisterBtn: "অ্যাকাউন্ট তৈরি করুন",
-    authHint: "ইউজারনেমে শুধু ইংরেজি অক্ষর, সংখ্যা আর _ ব্যবহার করা যাবে (৩–৩০ অক্ষর)। পাসওয়ার্ড কমপক্ষে ৪ অক্ষর।",
-    authErrWrong: "ইউজারনেম বা পাসওয়ার্ড ভুল হয়েছে।",
-    authErrTaken: "এই ইউজারনেমটি ইতিমধ্যে নেওয়া হয়েছে — অন্য একটি বেছে নিন।",
-    authErrInvalid: "ইউজারনেম ৩–৩০ অক্ষরের মধ্যে হতে হবে — শুধু ইংরেজি অক্ষর, সংখ্যা আর _।",
-    authErrPassword: "পাসওয়ার্ড কমপক্ষে ৪ অক্ষর হতে হবে।",
+    authIntro: "Google দিয়ে লগইন করুন — প্রত্যেকের হিসাব শুধু তার নিজের কাছেই দেখা যাবে, পাসওয়ার্ড মনে রাখতে হবে না।",
     authErrNetwork: "সার্ভারের সাথে যোগাযোগ করা যাচ্ছে না — ইন্টারনেট দেখে আবার চেষ্টা করুন।",
+    authGoogleOff: "Google লগইন এখনো চালু হয়নি — শীঘ্রই চালু হবে।",
+    authGoogleErr: "Google লগইন করা যায়নি, আবার চেষ্টা করুন।",
     logout: "লগআউট", loggedInAs: "লগইন:",
   },
   en: {
@@ -119,16 +113,10 @@ const I18N = {
     dueWas: "Was due", sentAt: "Sent",
     viaPush: "Push notification", viaLocal: "Shown when the app opened",
     agoNow: "just now", agoMin: "min ago", agoHour: "hours ago", agoDay: "days ago",
-    authLogin: "Login", authRegister: "New account",
-    authIntro: "Log in to keep your accounts separate — each person's accounts are visible only to them.",
-    authUsername: "Username", authPassword: "Password",
-    authLoginBtn: "Log in", authRegisterBtn: "Create account",
-    authHint: "Username can only use English letters, digits and _ (3–30 characters). Password at least 4 characters.",
-    authErrWrong: "Wrong username or password.",
-    authErrTaken: "This username is already taken — please choose another.",
-    authErrInvalid: "Username must be 3–30 characters — English letters, digits and _ only.",
-    authErrPassword: "Password must be at least 4 characters.",
+    authIntro: "Sign in with Google — each person's accounts are visible only to them, no password to remember.",
     authErrNetwork: "Cannot reach the server — check your internet and try again.",
+    authGoogleOff: "Google sign-in is not set up yet — coming soon.",
+    authGoogleErr: "Google sign-in failed, please try again.",
     logout: "Log out", loggedInAs: "Logged in:",
   },
 };
@@ -155,12 +143,12 @@ let entriesCache = [];
 const $ = (id) => document.getElementById(id);
 const t = (key) => (I18N[lang] && I18N[lang][key]) || I18N.bn[key] || key;
 
-/* ---------------- accounts (username + password) ----------------
-   Every person has their own account — the server only ever returns the
-   logged-in user's own entries, summary and reminders. The JWT lives in
-   localStorage; any 401 clears it and shows the login screen again. */
+/* ---------------- accounts (Google-only login) ----------------
+   Every person signs in with Google — there is no username/password
+   login at all. The server only ever returns the logged-in user's own
+   entries, summary and reminders. The JWT lives in localStorage; any
+   401 clears it and shows the login screen again. */
 let currentUser = null;
-let authMode = "login";
 function getToken() {
   try { return localStorage.getItem("hn-token"); } catch (e) { return null; }
 }
@@ -171,24 +159,6 @@ async function apiFetch(path, opts = {}) {
   const res = await fetch(path, Object.assign({}, opts, { headers }));
   if (res.status === 401) logout();
   return res;
-}
-function setAuthMode(mode) {
-  authMode = mode;
-  $("authTabLogin").classList.toggle("chip-active", mode === "login");
-  $("authTabRegister").classList.toggle("chip-active", mode === "register");
-  $("authSubmit").textContent = t(mode === "login" ? "authLoginBtn" : "authRegisterBtn");
-  $("authPassword").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
-  const err = $("authError");
-  err.classList.add("hidden");
-  err.textContent = "";
-}
-function mapAuthError(detail) {
-  const d = String(detail || "");
-  if (d.includes("already taken")) return t("authErrTaken");
-  if (d.includes("username must be")) return t("authErrInvalid");
-  if (d.includes("at least 4")) return t("authErrPassword");
-  if (d.includes("wrong username")) return t("authErrWrong");
-  return d || t("authErrWrong");
 }
 function showAuth() {
   $("authScreen").classList.remove("hidden");
@@ -203,38 +173,13 @@ function showApp() {
   $("loggedInLine").classList.remove("hidden");
   $("loggedInUser").textContent = currentUser ? currentUser.username : "";
 }
-async function doAuth(e) {
-  e.preventDefault();
-  const username = $("authUsername").value.trim();
-  const password = $("authPassword").value;
-  const err = $("authError");
-  err.classList.add("hidden");
-  const url = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
-  let res;
-  try {
-    res = await fetch(url, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-  } catch (e2) {
-    err.textContent = t("authErrNetwork");
-    err.classList.remove("hidden");
-    return;
-  }
-  if (!res.ok) {
-    let msg = t("authErrWrong");
-    try { const d = await res.json(); if (d.detail) msg = mapAuthError(d.detail); } catch (e2) { /* keep default */ }
-    err.textContent = msg;
-    err.classList.remove("hidden");
-    return;
-  }
-  const data = await res.json();
+function afterLogin(data) {
+  // Success path for Google sign-in.
   currentUser = data.user;
   try {
     localStorage.setItem("hn-token", data.token);
     localStorage.setItem("hn-username", data.user.username);
   } catch (e2) { /* ignore */ }
-  $("authPassword").value = "";
   showApp();
   postTokenToSW();
   resetForm();
@@ -242,6 +187,78 @@ async function doAuth(e) {
   updateNotifyUI();
   checkReminders();
   syncPushSubscription();
+}
+
+/* ---------------- Sign in with Google ----------------
+   Google Identity Services (GIS): the button is rendered by Google's
+   own library, the server verifies the ID token (never trust it on the
+   client alone). If Google is not set up (no GOOGLE_CLIENT_ID on the
+   server) or the GIS script cannot load (offline), the button stays
+   hidden and a note is shown instead. */
+let googleReady = false;
+function loadGoogleScript() {
+  return new Promise((resolve) => {
+    if (window.google && window.google.accounts) return resolve(true);
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.defer = true;
+    s.onload = () => resolve(!!(window.google && window.google.accounts));
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+async function onGoogleCredential(resp) {
+  const err = $("authError");
+  err.classList.add("hidden");
+  let res;
+  try {
+    res = await fetch("/api/auth/google", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: resp.credential }),
+    });
+  } catch (e2) {
+    err.textContent = t("authErrNetwork");
+    err.classList.remove("hidden");
+    return;
+  }
+  if (!res.ok) {
+    err.textContent = t("authGoogleErr");
+    err.classList.remove("hidden");
+    return;
+  }
+  afterLogin(await res.json());
+}
+async function initGoogle() {
+  let cfg = {};
+  try {
+    const res = await fetch("/api/config");
+    if (res.ok) cfg = await res.json();
+  } catch (e) { /* offline — Google stays hidden */ }
+  if (!cfg.google_enabled || !cfg.google_client_id) {
+    $("googleNote").classList.remove("hidden");
+    return;
+  }
+  if (!await loadGoogleScript()) {
+    $("googleNote").classList.remove("hidden");
+    return;
+  }
+  try {
+    window.google.accounts.id.initialize({
+      client_id: cfg.google_client_id,
+      callback: onGoogleCredential,
+      auto_select: false,
+    });
+    $("googleBox").classList.remove("hidden");
+    const slot = $("googleBtnSlot");
+    window.google.accounts.id.renderButton(slot, {
+      theme: "outline", size: "large", shape: "rectangular",
+      width: Math.max(240, Math.min(360, slot.clientWidth || 320)),
+    });
+    googleReady = true;
+  } catch (e) {
+    $("googleNote").classList.remove("hidden");
+  }
 }
 function logout() {
   currentUser = null;
@@ -258,7 +275,6 @@ function logout() {
   showAuth();
 }
 async function initAuth() {
-  setAuthMode("login");
   const token = getToken();
   if (!token) { showAuth(); updateNotifyUI(); return; }
   try {
@@ -334,8 +350,6 @@ function applyLang() {
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
   renderAll();
-  // Auth submit button label follows both language and login/register tab.
-  if (typeof setAuthMode === "function") setAuthMode(authMode);
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
 $("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
@@ -899,13 +913,11 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Auth UI wiring.
-$("authTabLogin").addEventListener("click", () => setAuthMode("login"));
-$("authTabRegister").addEventListener("click", () => setAuthMode("register"));
-$("authForm").addEventListener("submit", doAuth);
+// Logout wiring.
 $("logoutBtn").addEventListener("click", () => logout());
 $("logoutLink").addEventListener("click", () => logout());
 
 resetForm();
 applyLang();
 initAuth();
+initGoogle();

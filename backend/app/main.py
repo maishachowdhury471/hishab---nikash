@@ -1,12 +1,11 @@
 """AI Hisab Nikash — FastAPI backend + static frontend (single service).
 
-Accounts: every person has their own username + password account, and ALL
+Accounts: every person signs in with Google only, and ALL
 data (entries, summary, advice, comparison, reminders, push subscriptions)
 belongs to exactly one user. Nothing is shared between accounts.
 
 API (prefix /api):
-  POST   /api/auth/register               (username + password → token)
-  POST   /api/auth/login                  (username + password → token)
+  POST   /api/auth/google                 (Google ID token → token)
   GET    /api/auth/me                     (Bearer token → current user)
   GET    /api/health                      (public)
   GET    /api/entries?month=YYYY-MM       (auth — only your entries)
@@ -15,7 +14,7 @@ API (prefix /api):
   DELETE /api/entries/{id}                (auth — 404 if it is not yours)
   GET    /api/summary?month=YYYY-MM&lang=bn|en   (auth — only your data)
   POST   /api/parse                       (public, stateless parsing)
-  GET    /api/config                      (public: VAPID public key / push status)
+  GET    /api/config                      (public: VAPID public key / push status / Google)
   POST   /api/push/subscribe              (auth)
   POST   /api/push/unsubscribe            (auth)
   GET    /api/reminders/status            (auth — your last entry, your missed days)
@@ -150,56 +149,86 @@ def _prev_month(year: int, mon: int) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------- auth
-class AuthIn(BaseModel):
-    username: str = ""
-    password: str = ""
-
-
 def user_out(u: User) -> dict:
     return {"id": u.id, "username": u.username,
+            "email": u.email,
+            "provider": u.auth_provider or "google",
             "created_at": u.created_at.isoformat() if u.created_at else None}
 
 
-@app.post("/api/auth/register", status_code=201)
-def register(payload: AuthIn, db: Session = Depends(get_db)):
-    username = authmod.normalize_username(payload.username)
-    authmod.validate_username(username)
-    authmod.validate_password(payload.password)
-    if db.query(User).filter(User.username == username).first():
-        raise HTTPException(status_code=400, detail="username already taken")
-    first_user = db.query(User).count() == 0
-    user = User(username=username,
-                password_hash=authmod.hash_password(payload.password),
-                created_at=rem.now_dhaka())
-    db.add(user)
+def _adopt_legacy_data(db: Session, user: User):
+    """No login existed before v6: every entry, push subscription and
+    reminder log without an owner now belongs to the FIRST account ever
+    created, so the existing user's data is not lost when logins are
+    introduced. (Same rule for a Google sign-in that is the first user.)"""
+    db.query(Entry).filter(Entry.user_id.is_(None)).update(
+        {Entry.user_id: user.id}, synchronize_session=False)
+    db.query(PushSubscription).filter(
+        PushSubscription.user_id.is_(None)).update(
+        {PushSubscription.user_id: user.id}, synchronize_session=False)
+    db.query(ReminderLog).filter(
+        ReminderLog.user_id.is_(None)).update(
+        {ReminderLog.user_id: user.id}, synchronize_session=False)
     db.commit()
-    db.refresh(user)
-    if first_user:
-        # No login existed before this version: every entry, push
-        # subscription and reminder log without an owner now belongs to
-        # the FIRST account ever created, so the existing user's data
-        # is not lost when logins are introduced.
-        db.query(Entry).filter(Entry.user_id.is_(None)).update(
-            {Entry.user_id: user.id}, synchronize_session=False)
-        db.query(PushSubscription).filter(
-            PushSubscription.user_id.is_(None)).update(
-            {PushSubscription.user_id: user.id}, synchronize_session=False)
-        db.query(ReminderLog).filter(
-            ReminderLog.user_id.is_(None)).update(
-            {ReminderLog.user_id: user.id}, synchronize_session=False)
-        db.commit()
-    return {"user": user_out(user), "token": authmod.create_token(user)}
 
 
-@app.post("/api/auth/login")
-def login(payload: AuthIn, db: Session = Depends(get_db)):
-    username = authmod.normalize_username(payload.username)
-    user = db.query(User).filter(User.username == username).first()
-    if not user or not authmod.verify_password(payload.password,
-                                              user.password_hash):
+class GoogleIn(BaseModel):
+    id_token: str = ""
+
+
+def _username_from_email(email: str, db: Session) -> str:
+    """Derive a unique username from the email prefix, e.g.
+    roni@gmail.com → "roni", taken → "roni2", "roni3", ..."""
+    local = (email or "").split("@")[0].lower()
+    local = re.sub(r"[^a-z0-9_]", "_", local).strip("_") or "user"
+    if len(local) < 3:
+        local = (local + "_user")[:30]
+    candidate = local[:30]
+    n = 2
+    while db.query(User).filter(User.username == candidate).first():
+        suffix = str(n)
+        candidate = (local[:30 - len(suffix)] + suffix)
+        n += 1
+    return candidate
+
+
+@app.post("/api/auth/google")
+def google_login(payload: GoogleIn, db: Session = Depends(get_db)):
+    """Sign in with Google — the ONLY way to log in. The frontend sends
+    the Google Identity Services ID token; the server verifies it with
+    Google (signature, audience = our client id, expiry) and then finds
+    or creates the account. There is no username/password login at all."""
+    if not (payload.id_token or "").strip():
+        raise HTTPException(status_code=400, detail="id_token is required")
+    info = authmod.verify_google_token(payload.id_token.strip())
+    sub = info.get("sub")
+    email = (info.get("email") or "").strip().lower()
+    if not sub or not email:
         raise HTTPException(status_code=401,
-                            detail="wrong username or password")
-    return {"user": user_out(user), "token": authmod.create_token(user)}
+                            detail="Google token has no email")
+    user = db.query(User).filter(User.google_sub == sub).first()
+    is_new = False
+    if not user:
+        # Same email, different Google account id (e.g. a Google account
+        # recreated by Google): link the Google identity to the existing
+        # account instead of creating a duplicate.
+        user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(username=_username_from_email(email, db),
+                    email=email, google_sub=sub,
+                    auth_provider="google", created_at=rem.now_dhaka())
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        is_new = True
+        if db.query(User).count() == 1:
+            _adopt_legacy_data(db, user)
+    elif not user.google_sub:
+        user.google_sub = sub
+        db.commit()
+        db.refresh(user)
+    return {"user": user_out(user), "token": authmod.create_token(user),
+            "is_new": is_new}
 
 
 @app.get("/api/auth/me")
@@ -343,7 +372,9 @@ class ReminderShownIn(BaseModel):
 def config():
     return {"vapid_public_key": rem.vapid_public_key(),
             "push_enabled": rem.push_enabled(),
-            "reminder_hour": rem.REMINDER_HOUR}
+            "reminder_hour": rem.REMINDER_HOUR,
+            "google_client_id": authmod.google_client_id(),
+            "google_enabled": authmod.google_enabled()}
 
 
 @app.post("/api/push/subscribe", status_code=201)

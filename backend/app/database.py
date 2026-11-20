@@ -46,6 +46,8 @@ def ensure_schema():
         "entries": [("user_id", "INTEGER")],
         "push_subscriptions": [("user_id", "INTEGER")],
         "reminder_logs": [("user_id", "INTEGER")],
+        "users": [("email", "VARCHAR"), ("google_sub", "VARCHAR"),
+                  ("auth_provider", "VARCHAR")],
     }
     with engine.begin() as conn:
         for table, cols in needed.items():
@@ -56,9 +58,24 @@ def ensure_schema():
                 if name not in have:
                     conn.execute(
                         text(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}"))
+        # The users.password_hash column is a leftover from the
+        # short-lived v6 password login — it stays in the table (no
+        # destructive drop) but no code reads or writes it. New Google
+        # users are inserted without a password_hash, so make sure the
+        # column allows NULL on Postgres (v6's migration already did
+        # this on the live DB; this is an idempotent safety net).
+        if engine.dialect.name == "postgresql":
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL"))
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_entries_user_id "
             "ON entries (user_id)"))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email "
+            "ON users (email)"))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub "
+            "ON users (google_sub)"))
 
 
 def get_db():
