@@ -31,6 +31,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
@@ -57,6 +58,21 @@ async def _lifespan(_app):
 
 
 app = FastAPI(title="AI Hisab Nikash", lifespan=_lifespan)
+
+# The Capacitor APK (v1.2+) bundles the frontend locally, so its origin is
+# https://localhost (or capacitor://localhost) and its API calls are
+# cross-origin. The browser version is same-origin, so this changes
+# nothing for it. Auth uses an Authorization header, not cookies.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://hishab-nikash-production.up.railway.app",
+        "https://localhost",
+        "capacitor://localhost",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 EXPENSE_CATEGORIES = ["bazar", "khabar", "jatayat", "bill", "bari-bhara",
                       "biddut-bill", "gas-bill", "pani-bill", "internet-bill",

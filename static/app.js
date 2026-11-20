@@ -158,7 +158,7 @@ async function apiFetch(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   const token = getToken();
   if (token) headers["Authorization"] = "Bearer " + token;
-  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  const res = await fetch(apiBase() + path, Object.assign({}, opts, { headers }));
   if (res.status === 401) logout();
   return res;
 }
@@ -217,7 +217,7 @@ async function postGoogleIdToken(idToken) {
   err.classList.add("hidden");
   let res;
   try {
-    res = await fetch("/api/auth/google", {
+    res = await fetch(apiBase() + "/api/auth/google", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id_token: idToken }),
     });
@@ -250,6 +250,15 @@ function isCapacitor() {
     return !!(window.Capacitor && window.Capacitor.getPlatform &&
       window.Capacitor.getPlatform() !== "web");
   } catch (e) { return false; }
+}
+/* The Capacitor APK (v1.2+) bundles this same page locally, so its origin
+   is https://localhost and API calls must go to the live server by
+   absolute URL. In a browser the page is served by the server itself, so
+   relative paths stay as they are. Computed lazily (at call time) because
+   the Capacitor bridge may only appear after this script first runs. */
+const LIVE_API = "https://hishab-nikash-production.up.railway.app";
+function apiBase() {
+  try { return isCapacitor() ? LIVE_API : ""; } catch (e) { return ""; }
 }
 function nativeGooglePlugin() {
   try {
@@ -304,7 +313,7 @@ async function initNativeGoogle(cfg) {
 async function initGoogle() {
   let cfg = {};
   try {
-    const res = await fetch("/api/config");
+    const res = await fetch(apiBase() + "/api/config");
     if (res.ok) cfg = await res.json();
   } catch (e) { /* offline — Google stays hidden */ }
   if (!cfg.google_enabled || !cfg.google_client_id) {
