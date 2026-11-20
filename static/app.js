@@ -379,26 +379,31 @@ async function initGoogle() {
     $("googleNote").classList.remove("hidden");
     return;
   }
-  // Inside the Capacitor APK, use native Google sign-in (GIS is blocked
-  // in a WebView). The Capacitor bridge injects window.Capacitor as the
-  // page loads, which can race with this script — v1.2.1's diagnostic
-  // showed the plugin IS available in the end (isPluginAvailable: true,
-  // GoogleAuth in PluginHeaders) even though the first attempts failed,
-  // so keep retrying in the background instead of giving up after 4s:
-  // if the plugin appears later, swap the note for the button.
-  const tryNative = async () => {
-    if (await initNativeGoogle(cfg)) {
-      $("googleNote").classList.add("hidden");
-      return true;
-    }
-    return false;
-  };
-  if (await tryNative()) return;
-  for (let i = 0; i < 29; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    if (await tryNative()) return;
-  }
+  // Native sign-in is APK-only. In a browser/PWA go straight to GIS:
+  // v9.4's retry loop ran the native attempts (which always fail in a
+  // browser) 30 times with 1s waits, so the PWA's Google button took
+  // ~30 seconds to appear — it looked removed. The APK path below is
+  // unchanged: keep retrying there, since the plugin can appear late.
   if (isCapacitor()) {
+    // Inside the Capacitor APK, use native Google sign-in (GIS is blocked
+    // in a WebView). The Capacitor bridge injects window.Capacitor as the
+    // page loads, which can race with this script — v1.2.1's diagnostic
+    // showed the plugin IS available in the end (isPluginAvailable: true,
+    // GoogleAuth in PluginHeaders) even though the first attempts failed,
+    // so keep retrying in the background instead of giving up after 4s:
+    // if the plugin appears later, swap the note for the button.
+    const tryNative = async () => {
+      if (await initNativeGoogle(cfg)) {
+        $("googleNote").classList.add("hidden");
+        return true;
+      }
+      return false;
+    };
+    if (await tryNative()) return;
+    for (let i = 0; i < 29; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (await tryNative()) return;
+    }
     // The bridge is there but the native plugin never appeared: GIS
     // cannot work inside the app's WebView (it would open a blank
     // Google page in Chrome), so do not show it — say so instead.
