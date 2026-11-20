@@ -312,8 +312,23 @@ async function initGoogle() {
     return;
   }
   // Inside the Capacitor APK, use native Google sign-in (GIS is blocked
-  // in a WebView). In a normal browser this returns false and GIS is used.
+  // in a WebView). The Capacitor bridge injects window.Capacitor as the
+  // page loads, which can race with this script — so retry for a few
+  // seconds before giving up on the native path.
   if (await initNativeGoogle(cfg)) return;
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 400));
+    if (await initNativeGoogle(cfg)) return;
+  }
+  if (isCapacitor()) {
+    // The bridge is there but the native plugin never appeared: GIS
+    // cannot work inside the app's WebView (it would open a blank
+    // Google page in Chrome), so do not show it — say so instead.
+    const note = $("googleNote");
+    note.textContent = "অ্যাপের ভেতরে Google লগইন চালু হচ্ছে না — অ্যাপটি বন্ধ করে আবার খুলে দেখুন।";
+    note.classList.remove("hidden");
+    return;
+  }
   if (!await loadGoogleScript()) {
     $("googleNote").classList.remove("hidden");
     return;
