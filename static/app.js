@@ -300,9 +300,10 @@ function renderDiag() {
 }
 function nativeGooglePlugin() {
   try {
-    if (!isCapacitor()) return null;
+    if (!isCapacitor()) { hnDiag.lastFail = "no-capacitor"; return null; }
     if (window.Capacitor.isPluginAvailable &&
       window.Capacitor.isPluginAvailable("GoogleAuth")) {
+      hnDiag.lastFail = "ok";
       return window.Capacitor.registerPlugin("GoogleAuth");
     }
     // Fallback: try registering directly even when the availability
@@ -310,15 +311,20 @@ function nativeGooglePlugin() {
     // really is no native plugin, and that error is shown on screen.
     try {
       const GA = window.Capacitor.registerPlugin("GoogleAuth");
+      hnDiag.lastFail = "ok-direct";
       hnDiag.directRegister = "ok (proxy returned)";
       renderDiag();
       return GA;
     } catch (e) {
+      hnDiag.lastFail = "register-threw: " + (e && e.message ? e.message : e);
       hnDiag.directRegister = "error: " + (e && e.message ? e.message : e);
       renderDiag();
       return null;
     }
-  } catch (e) { return null; }
+  } catch (e) {
+    hnDiag.lastFail = "threw: " + (e && e.message ? e.message : e);
+    return null;
+  }
 }
 async function onNativeGoogleSignIn() {
   const err = $("authError");
@@ -352,6 +358,7 @@ async function onNativeGoogleSignIn() {
 async function initNativeGoogle(cfg) {
   // Show the native button instead of the GIS button. Returns true when
   // the native path is in use; false means "fall through to GIS".
+  hnDiag.attempts = (hnDiag.attempts || 0) + 1;
   collectDiag("init");
   const GA = nativeGooglePlugin();
   if (!GA) return false;
@@ -378,21 +385,36 @@ async function initGoogle() {
   }
   // Inside the Capacitor APK, use native Google sign-in (GIS is blocked
   // in a WebView). The Capacitor bridge injects window.Capacitor as the
-  // page loads, which can race with this script — so retry for a few
-  // seconds before giving up on the native path.
-  if (await initNativeGoogle(cfg)) return;
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 400));
-    if (await initNativeGoogle(cfg)) return;
+  // page loads, which can race with this script — v1.2.1's diagnostic
+  // showed the plugin IS available in the end (isPluginAvailable: true,
+  // GoogleAuth in PluginHeaders) even though the first attempts failed,
+  // so keep retrying in the background instead of giving up after 4s:
+  // if the plugin appears later, swap the note for the button.
+  const tryNative = async () => {
+    if (await initNativeGoogle(cfg)) {
+      $("googleNote").classList.add("hidden");
+      return true;
+    }
+    return false;
+  };
+  if (await tryNative()) return;
+  for (let i = 0; i < 29; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (await tryNative()) return;
   }
   if (isCapacitor()) {
     // The bridge is there but the native plugin never appeared: GIS
     // cannot work inside the app's WebView (it would open a blank
     // Google page in Chrome), so do not show it — say so instead.
+    // Keep trying in the background: if the plugin shows up late,
+    // the button replaces this note.
     collectDiag("failed");
     const note = $("googleNote");
     note.textContent = "অ্যাপের ভেতরে Google লগইন চালু হচ্ছে না — অ্যাপটি বন্ধ করে আবার খুলে দেখুন।";
     note.classList.remove("hidden");
+    const bg = setInterval(async () => {
+      if (await tryNative()) clearInterval(bg);
+    }, 2000);
     return;
   }
   if (!await loadGoogleScript()) {
