@@ -1,20 +1,27 @@
 """AI Hisab Nikash — FastAPI backend + static frontend (single service).
 
+Accounts: every person has their own username + password account, and ALL
+data (entries, summary, advice, comparison, reminders, push subscriptions)
+belongs to exactly one user. Nothing is shared between accounts.
+
 API (prefix /api):
-  GET    /api/health
-  GET    /api/entries?month=YYYY-MM
-  POST   /api/entries
-  PUT    /api/entries/{id}
-  DELETE /api/entries/{id}
-  GET    /api/summary?month=YYYY-MM&lang=bn|en
-  POST   /api/parse
-  GET    /api/config                        (VAPID public key / push status)
-  POST   /api/push/subscribe
-  POST   /api/push/unsubscribe
-  GET    /api/reminders/status              (last entry, missed days, due?)
-  GET    /api/reminders/history             (sent reminders, exact times)
-  POST   /api/reminders/trigger             (X-Reminder-Secret header)
-  POST   /api/reminders/shown               (record a locally shown reminder)
+  POST   /api/auth/register               (username + password → token)
+  POST   /api/auth/login                  (username + password → token)
+  GET    /api/auth/me                     (Bearer token → current user)
+  GET    /api/health                      (public)
+  GET    /api/entries?month=YYYY-MM       (auth — only your entries)
+  POST   /api/entries                     (auth)
+  PUT    /api/entries/{id}                (auth — 404 if it is not yours)
+  DELETE /api/entries/{id}                (auth — 404 if it is not yours)
+  GET    /api/summary?month=YYYY-MM&lang=bn|en   (auth — only your data)
+  POST   /api/parse                       (public, stateless parsing)
+  GET    /api/config                      (public: VAPID public key / push status)
+  POST   /api/push/subscribe              (auth)
+  POST   /api/push/unsubscribe            (auth)
+  GET    /api/reminders/status            (auth — your last entry, your missed days)
+  GET    /api/reminders/history           (auth — your reminders, exact times)
+  POST   /api/reminders/trigger           (X-Reminder-Secret header, per user)
+  POST   /api/reminders/shown             (auth — record a locally shown reminder)
 Frontend served at / ; manifest at /manifest.json ; sw.js at /sw.js.
 """
 import os
@@ -30,9 +37,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
+from . import auth as authmod
 from .advice import generate_advice
-from .database import Base, engine, get_db
-from .models import Entry, PushSubscription, ReminderLog
+from .database import Base, engine, ensure_schema, get_db
+from .models import Entry, PushSubscription, ReminderLog, User
 from .parser import parse_text
 from . import reminders as rem
 
@@ -42,6 +50,10 @@ STATIC_DIR = BASE_DIR / "static"
 @asynccontextmanager
 async def _lifespan(_app):
     Base.metadata.create_all(bind=engine)
+    # Existing databases (e.g. the live Railway Postgres from before
+    # logins existed) need the new user_id columns added — create_all
+    # alone never adds a column to an existing table.
+    ensure_schema()
     yield
 
 
@@ -118,9 +130,11 @@ def _month_bounds(year: int, mon: int):
     return first, last
 
 
-def _totals(db: Session, year: int, mon: int) -> dict:
+def _totals(db: Session, year: int, mon: int, user_id: int) -> dict:
     first, last = _month_bounds(year, mon)
-    rows = db.query(Entry).filter(Entry.date >= first, Entry.date <= last).all()
+    rows = (db.query(Entry)
+            .filter(Entry.user_id == user_id,
+                    Entry.date >= first, Entry.date <= last).all())
     income = sum(r.amount for r in rows if r.type == "income")
     expense = sum(r.amount for r in rows if r.type == "expense")
     by_category: dict[str, float] = {}
@@ -135,6 +149,64 @@ def _prev_month(year: int, mon: int) -> tuple[int, int]:
     return first.year, first.month
 
 
+# ---------------------------------------------------------------- auth
+class AuthIn(BaseModel):
+    username: str = ""
+    password: str = ""
+
+
+def user_out(u: User) -> dict:
+    return {"id": u.id, "username": u.username,
+            "created_at": u.created_at.isoformat() if u.created_at else None}
+
+
+@app.post("/api/auth/register", status_code=201)
+def register(payload: AuthIn, db: Session = Depends(get_db)):
+    username = authmod.normalize_username(payload.username)
+    authmod.validate_username(username)
+    authmod.validate_password(payload.password)
+    if db.query(User).filter(User.username == username).first():
+        raise HTTPException(status_code=400, detail="username already taken")
+    first_user = db.query(User).count() == 0
+    user = User(username=username,
+                password_hash=authmod.hash_password(payload.password),
+                created_at=rem.now_dhaka())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    if first_user:
+        # No login existed before this version: every entry, push
+        # subscription and reminder log without an owner now belongs to
+        # the FIRST account ever created, so the existing user's data
+        # is not lost when logins are introduced.
+        db.query(Entry).filter(Entry.user_id.is_(None)).update(
+            {Entry.user_id: user.id}, synchronize_session=False)
+        db.query(PushSubscription).filter(
+            PushSubscription.user_id.is_(None)).update(
+            {PushSubscription.user_id: user.id}, synchronize_session=False)
+        db.query(ReminderLog).filter(
+            ReminderLog.user_id.is_(None)).update(
+            {ReminderLog.user_id: user.id}, synchronize_session=False)
+        db.commit()
+    return {"user": user_out(user), "token": authmod.create_token(user)}
+
+
+@app.post("/api/auth/login")
+def login(payload: AuthIn, db: Session = Depends(get_db)):
+    username = authmod.normalize_username(payload.username)
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not authmod.verify_password(payload.password,
+                                              user.password_hash):
+        raise HTTPException(status_code=401,
+                            detail="wrong username or password")
+    return {"user": user_out(user), "token": authmod.create_token(user)}
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(authmod.get_current_user)):
+    return {"user": user_out(user)}
+
+
 # ---------------------------------------------------------------- API
 @app.get("/api/health")
 def health():
@@ -142,18 +214,21 @@ def health():
 
 
 @app.get("/api/entries")
-def list_entries(month: str, db: Session = Depends(get_db)):
+def list_entries(month: str, db: Session = Depends(get_db),
+                 user: User = Depends(authmod.get_current_user)):
     year, mon = _parse_month(month)
     first, last = _month_bounds(year, mon)
     rows = (db.query(Entry)
-            .filter(Entry.date >= first, Entry.date <= last)
+            .filter(Entry.user_id == user.id,
+                    Entry.date >= first, Entry.date <= last)
             .order_by(Entry.date.desc(), Entry.id.desc()).all())
     return [entry_out(r) for r in rows]
 
 
 @app.post("/api/entries", status_code=201)
-def create_entry(payload: EntryIn, db: Session = Depends(get_db)):
-    e = Entry(type=payload.type, amount=payload.amount,
+def create_entry(payload: EntryIn, db: Session = Depends(get_db),
+                 user: User = Depends(authmod.get_current_user)):
+    e = Entry(user_id=user.id, type=payload.type, amount=payload.amount,
               category=payload.category, note=payload.note, date=payload.date)
     db.add(e)
     db.commit()
@@ -162,8 +237,13 @@ def create_entry(payload: EntryIn, db: Session = Depends(get_db)):
 
 
 @app.put("/api/entries/{entry_id}")
-def update_entry(entry_id: int, payload: EntryIn, db: Session = Depends(get_db)):
-    e = db.query(Entry).filter(Entry.id == entry_id).first()
+def update_entry(entry_id: int, payload: EntryIn,
+                 db: Session = Depends(get_db),
+                 user: User = Depends(authmod.get_current_user)):
+    # 404 (not 403) when the entry belongs to someone else — so one user
+    # cannot even tell whether another user's entry id exists.
+    e = db.query(Entry).filter(Entry.id == entry_id,
+                               Entry.user_id == user.id).first()
     if not e:
         raise HTTPException(status_code=404, detail="entry not found")
     e.type, e.amount, e.category, e.note, e.date = (
@@ -174,8 +254,10 @@ def update_entry(entry_id: int, payload: EntryIn, db: Session = Depends(get_db))
 
 
 @app.delete("/api/entries/{entry_id}")
-def delete_entry(entry_id: int, db: Session = Depends(get_db)):
-    e = db.query(Entry).filter(Entry.id == entry_id).first()
+def delete_entry(entry_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(authmod.get_current_user)):
+    e = db.query(Entry).filter(Entry.id == entry_id,
+                               Entry.user_id == user.id).first()
     if not e:
         raise HTTPException(status_code=404, detail="entry not found")
     db.delete(e)
@@ -189,11 +271,12 @@ def parse_entry(payload: ParseIn):
 
 
 @app.get("/api/summary")
-def summary(month: str, lang: str = "bn", db: Session = Depends(get_db)):
+def summary(month: str, lang: str = "bn", db: Session = Depends(get_db),
+            user: User = Depends(authmod.get_current_user)):
     year, mon = _parse_month(month)
     py, pm = _prev_month(year, mon)
-    cur = _totals(db, year, mon)
-    prev = _totals(db, py, pm)
+    cur = _totals(db, year, mon, user.id)
+    prev = _totals(db, py, pm, user.id)
 
     def pct_change(new: float, old: float):
         if old == 0:
@@ -264,7 +347,8 @@ def config():
 
 
 @app.post("/api/push/subscribe", status_code=201)
-def push_subscribe(payload: PushSubscribeIn, db: Session = Depends(get_db)):
+def push_subscribe(payload: PushSubscribeIn, db: Session = Depends(get_db),
+                   user: User = Depends(authmod.get_current_user)):
     sub = payload.subscription or {}
     endpoint = sub.get("endpoint", "")
     keys = sub.get("keys", {}) or {}
@@ -274,11 +358,15 @@ def push_subscribe(payload: PushSubscribeIn, db: Session = Depends(get_db)):
     existing = db.query(PushSubscription).filter(
         PushSubscription.endpoint == endpoint).first()
     if existing:
+        # Same device/browser now used by this account — the subscription
+        # moves to the current user.
         existing.device_id = payload.device_id or existing.device_id
+        existing.user_id = user.id
         existing.p256dh, existing.auth = keys["p256dh"], keys["auth"]
         db.commit()
         return {"subscribed": True, "id": existing.id, "updated": True}
-    row = PushSubscription(device_id=payload.device_id, endpoint=endpoint,
+    row = PushSubscription(user_id=user.id, device_id=payload.device_id,
+                           endpoint=endpoint,
                            p256dh=keys["p256dh"], auth=keys["auth"],
                            created_at=rem.now_dhaka())
     db.add(row)
@@ -288,8 +376,12 @@ def push_subscribe(payload: PushSubscribeIn, db: Session = Depends(get_db)):
 
 
 @app.post("/api/push/unsubscribe")
-def push_unsubscribe(payload: PushUnsubscribeIn, db: Session = Depends(get_db)):
-    q = db.query(PushSubscription)
+def push_unsubscribe(payload: PushUnsubscribeIn,
+                     db: Session = Depends(get_db),
+                     user: User = Depends(authmod.get_current_user)):
+    # Only this user's own subscriptions can be removed.
+    q = db.query(PushSubscription).filter(
+        PushSubscription.user_id == user.id)
     if payload.endpoint:
         q = q.filter(PushSubscription.endpoint == payload.endpoint)
     elif payload.device_id:
@@ -303,34 +395,40 @@ def push_unsubscribe(payload: PushUnsubscribeIn, db: Session = Depends(get_db)):
 
 
 @app.get("/api/reminders/status")
-def reminder_status(db: Session = Depends(get_db)):
-    st = rem.compute_status(db)
+def reminder_status(db: Session = Depends(get_db),
+                    user: User = Depends(authmod.get_current_user)):
+    st = rem.compute_status(db, user_id=user.id)
     st["push_enabled"] = rem.push_enabled()
-    st["last_reminder"] = rem.last_reminder_out(db)
+    st["last_reminder"] = rem.last_reminder_out(db, user_id=user.id)
     return st
 
 
 @app.get("/api/reminders/history")
-def reminder_history(db: Session = Depends(get_db)):
-    rows = (db.query(ReminderLog).order_by(ReminderLog.id.desc())
+def reminder_history(db: Session = Depends(get_db),
+                     user: User = Depends(authmod.get_current_user)):
+    rows = (db.query(ReminderLog)
+            .filter(ReminderLog.user_id == user.id)
+            .order_by(ReminderLog.id.desc())
             .limit(30).all())
     return [rem.reminder_out(r) for r in rows]
 
 
 @app.post("/api/reminders/shown", status_code=201)
-def reminder_shown(payload: ReminderShownIn, db: Session = Depends(get_db)):
+def reminder_shown(payload: ReminderShownIn, db: Session = Depends(get_db),
+                   user: User = Depends(authmod.get_current_user)):
     """Record a reminder the device showed locally (catch-up while the
-    server push never arrived). De-duplicated per device + due date."""
+    server push never arrived). De-duplicated per user + device + due date."""
     try:
         from datetime import datetime as _dt
         due_at = _dt.fromisoformat(payload.due_at)
     except Exception:
         raise HTTPException(status_code=400, detail="due_at must be ISO datetime")
-    if rem.already_logged_today(db, payload.device_id or None, due_at.date()):
+    if rem.already_logged_today(db, payload.device_id or None,
+                                due_at.date(), user_id=user.id):
         return {"recorded": False, "reason": "already logged for this date"}
-    row = ReminderLog(device_id=payload.device_id or None, kind="daily",
-                      channel=payload.channel or "local", due_at=due_at,
-                      sent_at=rem.now_dhaka(), status="shown",
+    row = ReminderLog(user_id=user.id, device_id=payload.device_id or None,
+                      kind="daily", channel=payload.channel or "local",
+                      due_at=due_at, sent_at=rem.now_dhaka(), status="shown",
                       message=rem.MESSAGE_BN)
     db.add(row)
     db.commit()
@@ -342,7 +440,10 @@ def reminder_shown(payload: ReminderShownIn, db: Session = Depends(get_db)):
 def reminder_trigger(x_reminder_secret: str = Header(default=""),
                      db: Session = Depends(get_db)):
     """Daily cron entry point (cron-job.org calls this once a day).
-    Header: X-Reminder-Secret: <REMINDER_SECRET env value>."""
+    Header: X-Reminder-Secret: <REMINDER_SECRET env value>.
+    Checked per user: only users whose own last entry is more than 1 day
+    old get a reminder, sent only to THEIR push subscriptions, with
+    per-user de-dup (max one reminder per user per day)."""
     secret = os.environ.get("REMINDER_SECRET", "").strip()
     if not secret:
         raise HTTPException(status_code=503,
@@ -351,48 +452,58 @@ def reminder_trigger(x_reminder_secret: str = Header(default=""),
         raise HTTPException(status_code=401, detail="bad reminder secret")
     now = rem.now_dhaka()
     today = now.date()
-    st = rem.compute_status(db, now=now)
-    if not st["due"]:
-        return {"due": False, "sent": 0, "failed": 0, "skipped": 0,
-                "subscriptions": db.query(PushSubscription).count(),
-                "last_entry_date": st["last_entry_date"]}
     due_at = rem.due_time_for(today)
-    subs = db.query(PushSubscription).all()
+    users = db.query(User).all()
     sent = failed = skipped = 0
     dead_endpoints = []
-    for sub in subs:
-        if rem.already_logged_today(db, sub.device_id, today):
-            skipped += 1
+    any_due = False
+    last_entry_date = None
+    missed_dates = []
+    for user in users:
+        st = rem.compute_status(db, user_id=user.id, now=now)
+        if not st["due"]:
             continue
-        if not rem.push_enabled():
-            skipped += 1
-            continue
-        payload = {"title": rem.TITLE_BN, "body": rem.MESSAGE_BN,
-                   "due_at": due_at.isoformat(), "sent_at": now.isoformat(),
-                   "missed_dates": st["missed_dates"]}
-        try:
-            rem.send_push(sub, payload)
-            status = "sent"
-            sent += 1
-        except Exception as exc:
-            status = "failed"
-            failed += 1
-            # Expired/invalid push endpoint (410 Gone / 404) — stop trying it.
-            if "410" in str(exc) or "404" in str(exc):
-                dead_endpoints.append(sub.endpoint)
-        db.add(ReminderLog(device_id=sub.device_id, kind="daily",
-                           channel="push", due_at=due_at, sent_at=now,
-                           status=status, message=rem.MESSAGE_BN))
-        db.commit()
+        any_due = True
+        last_entry_date = st["last_entry_date"]
+        missed_dates = st["missed_dates"]
+        subs = db.query(PushSubscription).filter(
+            PushSubscription.user_id == user.id).all()
+        for sub in subs:
+            if rem.already_logged_today(db, sub.device_id, today,
+                                        user_id=user.id):
+                skipped += 1
+                continue
+            if not rem.push_enabled():
+                skipped += 1
+                continue
+            payload = {"title": rem.TITLE_BN, "body": rem.MESSAGE_BN,
+                       "due_at": due_at.isoformat(), "sent_at": now.isoformat(),
+                       "missed_dates": st["missed_dates"]}
+            try:
+                rem.send_push(sub, payload)
+                status = "sent"
+                sent += 1
+            except Exception as exc:
+                status = "failed"
+                failed += 1
+                # Expired/invalid push endpoint (410 Gone / 404) — stop trying it.
+                if "410" in str(exc) or "404" in str(exc):
+                    dead_endpoints.append(sub.endpoint)
+            db.add(ReminderLog(user_id=user.id, device_id=sub.device_id,
+                               kind="daily", channel="push", due_at=due_at,
+                               sent_at=now, status=status,
+                               message=rem.MESSAGE_BN))
+            db.commit()
     for endpoint in dead_endpoints:
         db.query(PushSubscription).filter(
             PushSubscription.endpoint == endpoint).delete()
     db.commit()
-    return {"due": True, "due_date": today.isoformat(),
+    return {"due": any_due, "due_date": today.isoformat(),
             "sent": sent, "failed": failed, "skipped": skipped,
-            "subscriptions": len(subs),
-            "last_entry_date": st["last_entry_date"],
-            "missed_dates": st["missed_dates"]}
+            "subscriptions": db.query(PushSubscription).count(),
+            "users_checked": len(users),
+            "last_entry_date": last_entry_date,
+            "missed_dates": missed_dates}
 
 
 # ---------------------------------------------------------------- frontend

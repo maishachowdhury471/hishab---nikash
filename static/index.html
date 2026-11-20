@@ -91,11 +91,40 @@
     <div class="flex items-center gap-2 shrink-0">
       <button id="themeToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full w-10 h-10 min-h-[40px] text-lg flex items-center justify-center" aria-label="ডার্ক মোড চালু করুন" title="ডার্ক মোড চালু করুন">🌙</button>
       <button id="langToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full px-3 py-2 text-sm font-semibold min-h-[40px]">English</button>
+      <button id="logoutBtn" class="hidden shrink-0 bg-white/15 hover:bg-white/25 rounded-full w-10 h-10 min-h-[40px] text-lg flex items-center justify-center" aria-label="লগআউট" title="লগআউট">🚪</button>
     </div>
   </div>
 </header>
 
-<main class="max-w-3xl mx-auto w-full px-3 sm:px-4 pb-16">
+<!-- Login / register (shown when logged out — your accounts are private) -->
+<div id="authScreen" class="hidden max-w-3xl mx-auto w-full px-3 sm:px-4 pt-6">
+  <section class="card p-5 sm:p-6">
+    <div class="text-center">
+      <img src="/static/icon.svg" alt="" class="w-16 h-16 mx-auto rounded-2xl">
+      <h2 class="font-bold text-xl mt-3" data-i18n="appTitle">AI হিসাব নিকাশ</h2>
+      <p class="text-sm text-gray-500 break-words" data-i18n="authIntro">নিজের হিসাব আলাদা রাখতে লগইন করুন — প্রত্যেকের হিসাব শুধু তার নিজের কাছেই দেখা যাবে।</p>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button type="button" id="authTabLogin" class="flex-1 min-w-0 py-2.5 rounded-lg border font-semibold chip-active" data-i18n="authLogin">লগইন</button>
+      <button type="button" id="authTabRegister" class="flex-1 min-w-0 py-2.5 rounded-lg border font-semibold" data-i18n="authRegister">নতুন অ্যাকাউন্ট</button>
+    </div>
+    <form id="authForm" class="mt-4 space-y-3">
+      <div>
+        <label for="authUsername" class="text-sm text-gray-600" data-i18n="authUsername">ইউজারনেম</label>
+        <input id="authUsername" type="text" autocomplete="username" required minlength="3" maxlength="30" class="w-full border rounded-lg px-3 py-2.5 mt-1" placeholder="যেমন: maisha">
+      </div>
+      <div>
+        <label for="authPassword" class="text-sm text-gray-600" data-i18n="authPassword">পাসওয়ার্ড</label>
+        <input id="authPassword" type="password" autocomplete="current-password" required minlength="4" class="w-full border rounded-lg px-3 py-2.5 mt-1" placeholder="••••••••">
+      </div>
+      <p id="authError" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 break-words"></p>
+      <button type="submit" id="authSubmit" class="w-full btn-primary rounded-lg py-3 font-bold">লগইন করুন</button>
+    </form>
+    <p class="text-xs text-gray-400 mt-3 text-center break-words" data-i18n="authHint">ইউজারনেমে শুধু ইংরেজি অক্ষর, সংখ্যা আর _ ব্যবহার করা যাবে (৩–৩০ অক্ষর)। পাসওয়ার্ড কমপক্ষে ৪ অক্ষর।</p>
+  </section>
+</div>
+
+<main id="appMain" class="max-w-3xl mx-auto w-full px-3 sm:px-4 pb-16">
 
   <!-- Month selector -->
   <section class="card mt-4 p-4 sm:p-5">
@@ -249,6 +278,7 @@
       <a href="https://nabinurislamroni.me" target="_blank" rel="noopener" class="font-bold text-emerald-700 hover:underline text-base sm:text-lg break-words">Nabinur Islam Roni</a>
     </p>
     <p class="text-xs text-gray-400 mt-2">AI Hisab Nikash • <span data-i18n="footer">আপনার হিসাব, আপনার হাতে</span></p>
+    <p id="loggedInLine" class="hidden text-xs text-gray-400 mt-1"><span data-i18n="loggedInAs">লগইন:</span> <span id="loggedInUser" class="font-semibold"></span> • <button id="logoutLink" type="button" class="underline" data-i18n="logout">লগআউট</button></p>
   </footer>
 </main>
 

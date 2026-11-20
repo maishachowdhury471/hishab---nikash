@@ -8,6 +8,8 @@ from datetime import date, timedelta
 # Temp DB must be chosen BEFORE importing the app (engine is built at import).
 _TMP = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/test.db"
+# Fixed JWT secret for tests (otherwise auth uses a random per-boot secret).
+os.environ["JWT_SECRET"] = "test-jwt-secret-for-pytest-only"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -23,13 +25,31 @@ THIS_MONTH = TODAY.strftime("%Y-%m")
 LAST_MONTH = (date(TODAY.year, TODAY.month, 1) - timedelta(days=1)).strftime("%Y-%m")
 
 
+AUTH = {}
+
+
 def setup_function():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    # Every test starts with one logged-in user ("maisha").
+    AUTH.clear()
+    AUTH.update(_register("maisha"))
 
 
-def _add(payload):
-    r = client.post("/api/entries", json=payload)
+def _register(username, password="pass1234"):
+    r = client.post("/api/auth/register",
+                    json={"username": username, "password": password})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _h(token=None):
+    return {"Authorization": f"Bearer {token or AUTH['token']}"}
+
+
+def _add(payload, headers=None):
+    r = client.post("/api/entries", json=payload,
+                    headers=headers if headers is not None else _h())
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -141,7 +161,7 @@ def test_new_categories_accepted_and_in_summary():
           "note": "বাসা", "date": TODAY.isoformat()})
     _add({"type": "income", "amount": 20000, "category": "remittance",
           "note": "", "date": TODAY.isoformat()})
-    s = client.get(f"/api/summary?month={THIS_MONTH}").json()
+    s = client.get(f"/api/summary?month={THIS_MONTH}", headers=_h()).json()
     assert s["by_category"]["bari-bhara"] == 10000
     assert s["by_category"]["remittance"] == 20000
     assert s["expense"] == 10000 and s["income"] == 20000
@@ -162,30 +182,30 @@ def test_crud_entry():
                     "note": "মাছ", "date": TODAY.isoformat()})
     assert created["id"] and created["note"] == "মাছ"
 
-    rows = client.get(f"/api/entries?month={THIS_MONTH}").json()
+    rows = client.get(f"/api/entries?month={THIS_MONTH}", headers=_h()).json()
     assert len(rows) == 1 and rows[0]["amount"] == 500
 
     upd = client.put(f"/api/entries/{created['id']}", json={
         "type": "expense", "amount": 600, "category": "bazar",
-        "note": "মাছ + সবজি", "date": TODAY.isoformat()}).json()
+        "note": "মাছ + সবজি", "date": TODAY.isoformat()}, headers=_h()).json()
     assert upd["amount"] == 600
 
-    assert client.delete(f"/api/entries/{created['id']}").status_code == 200
-    assert client.get(f"/api/entries?month={THIS_MONTH}").json() == []
+    assert client.delete(f"/api/entries/{created['id']}", headers=_h()).status_code == 200
+    assert client.get(f"/api/entries?month={THIS_MONTH}", headers=_h()).json() == []
 
 
 def test_create_rejects_bad_amount_and_type():
     r = client.post("/api/entries", json={"type": "expense", "amount": 0,
-                                          "category": "bazar", "date": TODAY.isoformat()})
+                                          "category": "bazar", "date": TODAY.isoformat()}, headers=_h())
     assert r.status_code == 422
     r = client.post("/api/entries", json={"type": "gift", "amount": 100,
-                                          "category": "bazar", "date": TODAY.isoformat()})
+                                          "category": "bazar", "date": TODAY.isoformat()}, headers=_h())
     assert r.status_code == 422
 
 
 def test_update_missing_entry_404():
     r = client.put("/api/entries/99999", json={"type": "expense", "amount": 10,
-                   "category": "bazar", "date": TODAY.isoformat()})
+                   "category": "bazar", "date": TODAY.isoformat()}, headers=_h())
     assert r.status_code == 404
 
 
@@ -197,7 +217,7 @@ def test_summary_totals():
           "note": "", "date": TODAY.isoformat()})
     _add({"type": "expense", "amount": 200, "category": "khabar",
           "note": "", "date": TODAY.isoformat()})
-    s = client.get(f"/api/summary?month={THIS_MONTH}").json()
+    s = client.get(f"/api/summary?month={THIS_MONTH}", headers=_h()).json()
     assert s["income"] == 30000 and s["expense"] == 700 and s["savings"] == 29300
     assert s["by_category"]["bazar"] == 500 and s["by_category"]["khabar"] == 200
 
@@ -209,7 +229,7 @@ def test_comparison_and_overspend_flag():
           "note": "", "date": last.isoformat()})
     _add({"type": "expense", "amount": 1500, "category": "bazar",
           "note": "", "date": TODAY.isoformat()})
-    s = client.get(f"/api/summary?month={THIS_MONTH}").json()
+    s = client.get(f"/api/summary?month={THIS_MONTH}", headers=_h()).json()
     assert s["prev_expense"] == 1000 and s["expense"] == 1500
     assert s["expense_pct_change"] == 50.0
     assert len(s["overspend"]) == 1
@@ -225,7 +245,7 @@ def test_no_overspend_when_increase_small():
           "note": "", "date": last.isoformat()})
     _add({"type": "expense", "amount": 1100, "category": "bazar",
           "note": "", "date": TODAY.isoformat()})
-    s = client.get(f"/api/summary?month={THIS_MONTH}").json()
+    s = client.get(f"/api/summary?month={THIS_MONTH}", headers=_h()).json()
     assert s["overspend"] == []
 
 
@@ -236,16 +256,16 @@ def test_advice_returns_2_to_4_items():
           "note": "", "date": TODAY.isoformat()})
     _add({"type": "expense", "amount": 1000, "category": "khabar",
           "note": "", "date": TODAY.isoformat()})
-    s = client.get(f"/api/summary?month={THIS_MONTH}&lang=bn").json()
+    s = client.get(f"/api/summary?month={THIS_MONTH}&lang=bn", headers=_h()).json()
     assert 2 <= len(s["advice"]) <= 4
     assert any("বাজার" in a for a in s["advice"])  # top category named
-    s_en = client.get(f"/api/summary?month={THIS_MONTH}&lang=en").json()
+    s_en = client.get(f"/api/summary?month={THIS_MONTH}&lang=en", headers=_h()).json()
     assert 2 <= len(s_en["advice"]) <= 4
     assert any("Bazar" in a for a in s_en["advice"])
 
 
 def test_advice_empty_month():
-    s = client.get(f"/api/summary?month={THIS_MONTH}").json()
+    s = client.get(f"/api/summary?month={THIS_MONTH}", headers=_h()).json()
     assert 2 <= len(s["advice"]) <= 4
 
 
@@ -285,7 +305,7 @@ def _restore_env(old):
 
 
 def test_reminder_status_no_entries():
-    st = client.get("/api/reminders/status").json()
+    st = client.get("/api/reminders/status", headers=_h()).json()
     assert st["due"] is False
     assert st["last_entry_date"] is None
     assert st["missed_dates"] == [] and st["missed_count"] == 0
@@ -294,7 +314,7 @@ def test_reminder_status_no_entries():
 def test_reminder_due_when_last_entry_3_days_ago():
     _add({"type": "expense", "amount": 100, "category": "bazar",
           "note": "", "date": (TODAY - timedelta(days=3)).isoformat()})
-    st = client.get("/api/reminders/status").json()
+    st = client.get("/api/reminders/status", headers=_h()).json()
     assert st["due"] is True
     assert st["days_since_last_entry"] == 3
     assert st["missed_dates"] == [
@@ -307,12 +327,12 @@ def test_reminder_due_when_last_entry_3_days_ago():
 def test_reminder_not_due_when_entry_yesterday_or_today():
     _add({"type": "expense", "amount": 100, "category": "bazar",
           "note": "", "date": (TODAY - timedelta(days=1)).isoformat()})
-    st = client.get("/api/reminders/status").json()
+    st = client.get("/api/reminders/status", headers=_h()).json()
     assert st["due"] is False and st["missed_dates"] == []
     setup_function()
     _add({"type": "income", "amount": 100, "category": "beton",
           "note": "", "date": TODAY.isoformat()})
-    st = client.get("/api/reminders/status").json()
+    st = client.get("/api/reminders/status", headers=_h()).json()
     assert st["due"] is False
 
 
@@ -338,17 +358,17 @@ def test_push_subscribe_unsubscribe_roundtrip():
     sub = {"endpoint": "https://example.com/push/abc123",
            "keys": {"p256dh": "p256dh-value", "auth": "auth-value"}}
     r = client.post("/api/push/subscribe",
-                    json={"device_id": "dev-1", "subscription": sub})
+                    json={"device_id": "dev-1", "subscription": sub}, headers=_h())
     assert r.status_code == 201 and r.json()["subscribed"] is True
     # Same endpoint again → update, not a second row.
     r2 = client.post("/api/push/subscribe",
-                     json={"device_id": "dev-1", "subscription": sub})
+                     json={"device_id": "dev-1", "subscription": sub}, headers=_h())
     assert r2.json()["updated"] is True
     r = client.post("/api/push/unsubscribe",
-                    json={"endpoint": "https://example.com/push/abc123"})
+                    json={"endpoint": "https://example.com/push/abc123"}, headers=_h())
     assert r.json()["unsubscribed"] == 1
     r = client.post("/api/push/unsubscribe",
-                    json={"endpoint": "https://example.com/push/abc123"})
+                    json={"endpoint": "https://example.com/push/abc123"}, headers=_h())
     assert r.json()["unsubscribed"] == 0
 
 
@@ -365,7 +385,7 @@ def test_trigger_dedup_and_history():
                "keys": {"p256dh": "BOGUSp256dhKEYAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                         "auth": "BOGUSauthKEYAAAAAAA"}}
         assert client.post("/api/push/subscribe", json={
-            "device_id": "dev-9", "subscription": sub}).status_code == 201
+            "device_id": "dev-9", "subscription": sub}, headers=_h()).status_code == 201
         h = {"X-Reminder-Secret": "test-secret"}
         first = client.post("/api/reminders/trigger", headers=h).json()
         assert first["due"] is True
@@ -375,7 +395,7 @@ def test_trigger_dedup_and_history():
         second = client.post("/api/reminders/trigger", headers=h).json()
         assert second["sent"] == 0 and second["failed"] == 0
         assert second["skipped"] == 1
-        hist = client.get("/api/reminders/history").json()
+        hist = client.get("/api/reminders/history", headers=_h()).json()
         assert len(hist) == 1
         row = hist[0]
         assert row["status"] == "failed" and row["channel"] == "push"
@@ -401,13 +421,13 @@ def test_trigger_not_due_sends_nothing():
 def test_reminder_shown_records_local_catchup():
     due_at = (TODAY - timedelta(days=1)).isoformat() + "T09:00:00"
     r = client.post("/api/reminders/shown", json={
-        "device_id": "dev-1", "due_at": due_at, "channel": "local"})
+        "device_id": "dev-1", "due_at": due_at, "channel": "local"}, headers=_h())
     assert r.status_code == 201 and r.json()["recorded"] is True
     # Same device + same due date again → not recorded twice.
     r = client.post("/api/reminders/shown", json={
-        "device_id": "dev-1", "due_at": due_at, "channel": "local"})
+        "device_id": "dev-1", "due_at": due_at, "channel": "local"}, headers=_h())
     assert r.json()["recorded"] is False
-    hist = client.get("/api/reminders/history").json()
+    hist = client.get("/api/reminders/history", headers=_h()).json()
     assert len(hist) == 1
     assert hist[0]["channel"] == "local" and hist[0]["status"] == "shown"
     assert hist[0]["due_at"] == due_at
@@ -422,3 +442,133 @@ def test_config_push_disabled_without_keys():
         assert cfg["reminder_hour"] == 9
     finally:
         _restore_env(old)
+
+
+# ---------------------------------------------------------------- accounts
+def test_register_login_roundtrip_and_me():
+    d = _register("roni", "secret99")
+    assert d["user"]["username"] == "roni" and d["token"]
+    r = client.post("/api/auth/login",
+                    json={"username": "roni", "password": "secret99"})
+    assert r.status_code == 200 and r.json()["token"]
+    me = client.get("/api/auth/me", headers=_h(r.json()["token"])).json()
+    assert me["user"]["username"] == "roni"
+
+
+def test_register_duplicate_and_invalid_username():
+    r = client.post("/api/auth/register",
+                    json={"username": "maisha", "password": "pass1234"})
+    assert r.status_code == 400  # already taken (setup user)
+    for bad in ["ab", "a" * 31, "maisha chowdhury", "maisha!"]:
+        r = client.post("/api/auth/register",
+                        json={"username": bad, "password": "pass1234"})
+        assert r.status_code == 400, bad
+    r = client.post("/api/auth/register",
+                    json={"username": "newuser", "password": "123"})
+    assert r.status_code == 400  # password too short
+
+
+def test_login_wrong_password_401():
+    r = client.post("/api/auth/login",
+                    json={"username": "maisha", "password": "wrongpass"})
+    assert r.status_code == 401
+    r = client.post("/api/auth/login",
+                    json={"username": "nouser", "password": "pass1234"})
+    assert r.status_code == 401
+
+
+def test_unauthenticated_data_endpoints_401():
+    assert client.get(f"/api/entries?month={THIS_MONTH}").status_code == 401
+    assert client.get(f"/api/summary?month={THIS_MONTH}").status_code == 401
+    assert client.get("/api/reminders/status").status_code == 401
+    assert client.get("/api/reminders/history").status_code == 401
+    assert client.post("/api/entries", json={
+        "type": "expense", "amount": 1, "category": "bazar",
+        "date": TODAY.isoformat()}).status_code == 401
+    assert client.get("/api/auth/me").status_code == 401
+    # Public endpoints still work without a token.
+    assert client.get("/api/health").status_code == 200
+    assert client.post("/api/parse",
+                       json={"text": "বাজারে ৫০০ টাকা"}).status_code == 200
+
+
+def test_user_isolation_entries_and_summary():
+    a = _register("usera")
+    b = _register("userb")
+    _add({"type": "expense", "amount": 500, "category": "bazar",
+          "note": "A", "date": TODAY.isoformat()}, headers=_h(a["token"]))
+    _add({"type": "income", "amount": 30000, "category": "beton",
+          "note": "", "date": TODAY.isoformat()}, headers=_h(a["token"]))
+    rows_b = client.get(f"/api/entries?month={THIS_MONTH}",
+                        headers=_h(b["token"])).json()
+    assert rows_b == []
+    s_b = client.get(f"/api/summary?month={THIS_MONTH}",
+                     headers=_h(b["token"])).json()
+    assert s_b["income"] == 0 and s_b["expense"] == 0
+    assert s_b["by_category"] == {}
+    rows_a = client.get(f"/api/entries?month={THIS_MONTH}",
+                        headers=_h(a["token"])).json()
+    assert len(rows_a) == 2
+    s_a = client.get(f"/api/summary?month={THIS_MONTH}",
+                     headers=_h(a["token"])).json()
+    assert s_a["income"] == 30000 and s_a["expense"] == 500
+
+
+def test_cross_user_entry_access_404():
+    a = _register("usera")
+    b = _register("userb")
+    created = _add({"type": "expense", "amount": 500, "category": "bazar",
+                    "note": "", "date": TODAY.isoformat()},
+                   headers=_h(a["token"]))
+    payload = {"type": "expense", "amount": 999, "category": "bazar",
+               "note": "", "date": TODAY.isoformat()}
+    # B cannot see, update or delete A's entry — 404, no existence leak.
+    rows_b = client.get(f"/api/entries?month={THIS_MONTH}",
+                        headers=_h(b["token"])).json()
+    assert all(e["id"] != created["id"] for e in rows_b)
+    assert client.put(f"/api/entries/{created['id']}", json=payload,
+                      headers=_h(b["token"])).status_code == 404
+    assert client.delete(f"/api/entries/{created['id']}",
+                         headers=_h(b["token"])).status_code == 404
+    # A's entry is untouched.
+    rows_a = client.get(f"/api/entries?month={THIS_MONTH}",
+                        headers=_h(a["token"])).json()
+    assert len(rows_a) == 1 and rows_a[0]["amount"] == 500
+
+
+def test_reminder_status_is_per_user():
+    a = _register("usera")
+    b = _register("userb")
+    _add({"type": "expense", "amount": 100, "category": "bazar",
+          "note": "", "date": (TODAY - timedelta(days=3)).isoformat()},
+         headers=_h(a["token"]))
+    st_a = client.get("/api/reminders/status",
+                      headers=_h(a["token"])).json()
+    assert st_a["due"] is True and st_a["missed_count"] == 2
+    st_b = client.get("/api/reminders/status",
+                      headers=_h(b["token"])).json()
+    assert st_b["due"] is False and st_b["last_entry_date"] is None
+
+
+def test_first_user_adopts_legacy_entries():
+    # Data saved before logins existed (user_id NULL) belongs to the FIRST
+    # account ever created — and to nobody else.
+    from backend.app.database import SessionLocal
+    from backend.app.models import Entry as EntryModel
+
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    db.add(EntryModel(type="expense", amount=700, category="bazar",
+                      note="legacy", date=TODAY))
+    db.commit()
+    db.close()
+    first = _register("firstuser")
+    rows = client.get(f"/api/entries?month={THIS_MONTH}",
+                      headers=_h(first["token"])).json()
+    assert len(rows) == 1
+    assert rows[0]["note"] == "legacy" and rows[0]["amount"] == 700
+    second = _register("seconduser")
+    rows2 = client.get(f"/api/entries?month={THIS_MONTH}",
+                       headers=_h(second["token"])).json()
+    assert rows2 == []

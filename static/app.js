@@ -63,6 +63,17 @@ const I18N = {
     dueWas: "আসার কথা ছিল", sentAt: "পাঠানো হয়েছে",
     viaPush: "পুশ নোটিফিকেশন", viaLocal: "অ্যাপ খুলে দেখানো হয়েছে",
     agoNow: "এখনই", agoMin: "মিনিট আগে", agoHour: "ঘণ্টা আগে", agoDay: "দিন আগে",
+    authLogin: "লগইন", authRegister: "নতুন অ্যাকাউন্ট",
+    authIntro: "নিজের হিসাব আলাদা রাখতে লগইন করুন — প্রত্যেকের হিসাব শুধু তার নিজের কাছেই দেখা যাবে।",
+    authUsername: "ইউজারনেম", authPassword: "পাসওয়ার্ড",
+    authLoginBtn: "লগইন করুন", authRegisterBtn: "অ্যাকাউন্ট তৈরি করুন",
+    authHint: "ইউজারনেমে শুধু ইংরেজি অক্ষর, সংখ্যা আর _ ব্যবহার করা যাবে (৩–৩০ অক্ষর)। পাসওয়ার্ড কমপক্ষে ৪ অক্ষর।",
+    authErrWrong: "ইউজারনেম বা পাসওয়ার্ড ভুল হয়েছে।",
+    authErrTaken: "এই ইউজারনেমটি ইতিমধ্যে নেওয়া হয়েছে — অন্য একটি বেছে নিন।",
+    authErrInvalid: "ইউজারনেম ৩–৩০ অক্ষরের মধ্যে হতে হবে — শুধু ইংরেজি অক্ষর, সংখ্যা আর _।",
+    authErrPassword: "পাসওয়ার্ড কমপক্ষে ৪ অক্ষর হতে হবে।",
+    authErrNetwork: "সার্ভারের সাথে যোগাযোগ করা যাচ্ছে না — ইন্টারনেট দেখে আবার চেষ্টা করুন।",
+    logout: "লগআউট", loggedInAs: "লগইন:",
   },
   en: {
     appTitle: "AI Hisab Nikash", appSubtitle: "Smart daily income-expense tracker",
@@ -108,6 +119,17 @@ const I18N = {
     dueWas: "Was due", sentAt: "Sent",
     viaPush: "Push notification", viaLocal: "Shown when the app opened",
     agoNow: "just now", agoMin: "min ago", agoHour: "hours ago", agoDay: "days ago",
+    authLogin: "Login", authRegister: "New account",
+    authIntro: "Log in to keep your accounts separate — each person's accounts are visible only to them.",
+    authUsername: "Username", authPassword: "Password",
+    authLoginBtn: "Log in", authRegisterBtn: "Create account",
+    authHint: "Username can only use English letters, digits and _ (3–30 characters). Password at least 4 characters.",
+    authErrWrong: "Wrong username or password.",
+    authErrTaken: "This username is already taken — please choose another.",
+    authErrInvalid: "Username must be 3–30 characters — English letters, digits and _ only.",
+    authErrPassword: "Password must be at least 4 characters.",
+    authErrNetwork: "Cannot reach the server — check your internet and try again.",
+    logout: "Log out", loggedInAs: "Logged in:",
   },
 };
 
@@ -132,6 +154,152 @@ let entriesCache = [];
 
 const $ = (id) => document.getElementById(id);
 const t = (key) => (I18N[lang] && I18N[lang][key]) || I18N.bn[key] || key;
+
+/* ---------------- accounts (username + password) ----------------
+   Every person has their own account — the server only ever returns the
+   logged-in user's own entries, summary and reminders. The JWT lives in
+   localStorage; any 401 clears it and shows the login screen again. */
+let currentUser = null;
+let authMode = "login";
+function getToken() {
+  try { return localStorage.getItem("hn-token"); } catch (e) { return null; }
+}
+async function apiFetch(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  const token = getToken();
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (res.status === 401) logout();
+  return res;
+}
+function setAuthMode(mode) {
+  authMode = mode;
+  $("authTabLogin").classList.toggle("chip-active", mode === "login");
+  $("authTabRegister").classList.toggle("chip-active", mode === "register");
+  $("authSubmit").textContent = t(mode === "login" ? "authLoginBtn" : "authRegisterBtn");
+  $("authPassword").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
+  const err = $("authError");
+  err.classList.add("hidden");
+  err.textContent = "";
+}
+function mapAuthError(detail) {
+  const d = String(detail || "");
+  if (d.includes("already taken")) return t("authErrTaken");
+  if (d.includes("username must be")) return t("authErrInvalid");
+  if (d.includes("at least 4")) return t("authErrPassword");
+  if (d.includes("wrong username")) return t("authErrWrong");
+  return d || t("authErrWrong");
+}
+function showAuth() {
+  $("authScreen").classList.remove("hidden");
+  $("appMain").classList.add("hidden");
+  $("logoutBtn").classList.add("hidden");
+  $("loggedInLine").classList.add("hidden");
+}
+function showApp() {
+  $("authScreen").classList.add("hidden");
+  $("appMain").classList.remove("hidden");
+  $("logoutBtn").classList.remove("hidden");
+  $("loggedInLine").classList.remove("hidden");
+  $("loggedInUser").textContent = currentUser ? currentUser.username : "";
+}
+async function doAuth(e) {
+  e.preventDefault();
+  const username = $("authUsername").value.trim();
+  const password = $("authPassword").value;
+  const err = $("authError");
+  err.classList.add("hidden");
+  const url = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch (e2) {
+    err.textContent = t("authErrNetwork");
+    err.classList.remove("hidden");
+    return;
+  }
+  if (!res.ok) {
+    let msg = t("authErrWrong");
+    try { const d = await res.json(); if (d.detail) msg = mapAuthError(d.detail); } catch (e2) { /* keep default */ }
+    err.textContent = msg;
+    err.classList.remove("hidden");
+    return;
+  }
+  const data = await res.json();
+  currentUser = data.user;
+  try {
+    localStorage.setItem("hn-token", data.token);
+    localStorage.setItem("hn-username", data.user.username);
+  } catch (e2) { /* ignore */ }
+  $("authPassword").value = "";
+  showApp();
+  postTokenToSW();
+  resetForm();
+  loadAll();
+  updateNotifyUI();
+  checkReminders();
+  syncPushSubscription();
+}
+function logout() {
+  currentUser = null;
+  try {
+    localStorage.removeItem("hn-token");
+    localStorage.removeItem("hn-username");
+  } catch (e) { /* ignore */ }
+  entriesCache = [];
+  summaryCache = null;
+  reminderStatusCache = null;
+  reminderHistoryCache = [];
+  renderAll();
+  postTokenToSW();
+  showAuth();
+}
+async function initAuth() {
+  setAuthMode("login");
+  const token = getToken();
+  if (!token) { showAuth(); updateNotifyUI(); return; }
+  try {
+    const res = await apiFetch("/api/auth/me");
+    if (!res.ok) { showAuth(); return; }
+    const data = await res.json();
+    currentUser = data.user;
+    showApp();
+    postTokenToSW();
+    loadAll();
+    updateNotifyUI();
+    checkReminders();
+    syncPushSubscription();
+  } catch (e) { showAuth(); }
+}
+async function postTokenToSW() {
+  // The service worker cannot read localStorage — hand it the token so
+  // its Background Sync catch-up check can call the (authed) status API.
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if (reg.active) reg.active.postMessage({ type: "auth-token", token: getToken() });
+  } catch (e) { /* ignore */ }
+}
+async function syncPushSubscription() {
+  // Reminders were already on for this device: re-send the existing push
+  // subscription now that we are logged in, so it is tied to this user
+  // (otherwise the daily server push would not know whose it is).
+  let on = false;
+  try { on = localStorage.getItem("hn-reminders-on") === "1"; } catch (e) { /* ignore */ }
+  if (!on || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await apiFetch("/api/push/subscribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId(), subscription: sub.toJSON() }),
+    });
+  } catch (e) { /* best effort */ }
+}
 
 function fmtNum(n) {
   const s = Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -166,6 +334,8 @@ function applyLang() {
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
   renderAll();
+  // Auth submit button label follows both language and login/register tab.
+  if (typeof setAuthMode === "function") setAuthMode(authMode);
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
 $("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
@@ -222,11 +392,12 @@ $("entryForm").addEventListener("submit", async (e) => {
     date: $("entryDate").value,
   };
   const id = $("editId").value;
-  const res = await fetch(id ? `/api/entries/${id}` : "/api/entries", {
+  const res = await apiFetch(id ? `/api/entries/${id}` : "/api/entries", {
     method: id ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  if (res.status === 401) return; // apiFetch already showed the login screen
   if (!res.ok) { alert(await res.text()); return; }
   resetForm();
   loadAll();
@@ -269,7 +440,7 @@ async function confirmDeleteModal() {
   if (pendingDeleteId == null) return;
   const id = pendingDeleteId;
   closeDeleteModal();
-  await fetch(`/api/entries/${id}`, { method: "DELETE" });
+  await apiFetch(`/api/entries/${id}`, { method: "DELETE" });
   loadAll();
 }
 $("deleteModalCancel").addEventListener("click", closeDeleteModal);
@@ -282,7 +453,7 @@ function deleteEntry(entry) { openDeleteModal(entry); }
 
 /* ---------------- AI quick entry ---------------- */
 async function parseQuick(text) {
-  const res = await fetch("/api/parse", {
+  const res = await apiFetch("/api/parse", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
@@ -463,8 +634,8 @@ async function loadAll() {
   $("monthLabel").textContent = monthLabel(curMonth);
   $("monthInput").value = curMonth;
   const [eRes, sRes] = await Promise.all([
-    fetch(`/api/entries?month=${curMonth}`),
-    fetch(`/api/summary?month=${curMonth}&lang=${lang}`),
+    apiFetch(`/api/entries?month=${curMonth}`),
+    apiFetch(`/api/summary?month=${curMonth}&lang=${lang}`),
   ]);
   entriesCache = eRes.ok ? await eRes.json() : [];
   summaryCache = sRes.ok ? await sRes.json() : null;
@@ -596,9 +767,10 @@ async function showCatchUpReminder(st) {
 
 async function checkReminders() {
   localMissedCheck();
+  if (!getToken()) return; // logged out — nothing personal to check
   if (!navigator.onLine) return;
   try {
-    const res = await fetch("/api/reminders/status");
+    const res = await apiFetch("/api/reminders/status");
     if (!res.ok) return;
     const st = await res.json();
     reminderStatusCache = st;
@@ -606,7 +778,7 @@ async function checkReminders() {
       try { localStorage.setItem("hn-last-entry-date", st.last_entry_date); } catch (e) { /* ignore */ }
     }
     renderMissed(st.due ? st : null);
-    const hRes = await fetch("/api/reminders/history");
+    const hRes = await apiFetch("/api/reminders/history");
     if (hRes.ok) {
       reminderHistoryCache = await hRes.json();
       renderReminderHistory(reminderHistoryCache);
@@ -619,11 +791,11 @@ async function checkReminders() {
         try { localStorage.setItem("hn-last-shown-reminder", st.due_at); } catch (e) { /* ignore */ }
         // Record it so the history shows the exact due + shown times.
         try {
-          await fetch("/api/reminders/shown", {
+          await apiFetch("/api/reminders/shown", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ device_id: deviceId(), due_at: st.due_at, channel: "local" }),
           });
-          const r2 = await fetch("/api/reminders/history");
+          const r2 = await apiFetch("/api/reminders/history");
           if (r2.ok) { reminderHistoryCache = await r2.json(); renderReminderHistory(reminderHistoryCache); }
         } catch (e) { /* history is best-effort */ }
       }
@@ -670,7 +842,7 @@ async function enableReminders() {
   if (perm === "default") perm = await Notification.requestPermission();
   if (perm !== "granted") { statusEl.textContent = t("notifyNeedPermission"); updateNotifyUI(); return; }
   try {
-    const cfg = await (await fetch("/api/config")).json();
+    const cfg = await (await apiFetch("/api/config")).json();
     if (!cfg.push_enabled || !cfg.vapid_public_key) {
       // No server push yet — local + catch-up reminders still work.
       statusEl.textContent = t("notifyNoServerPush");
@@ -686,7 +858,7 @@ async function enableReminders() {
         applicationServerKey: urlB64ToUint8(cfg.vapid_public_key),
       });
     }
-    await fetch("/api/push/subscribe", {
+    await apiFetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device_id: deviceId(), subscription: sub.toJSON() }),
     });
@@ -699,7 +871,7 @@ async function disableReminders() {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) {
-      await fetch("/api/push/unsubscribe", {
+      await apiFetch("/api/push/unsubscribe", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ device_id: deviceId(), endpoint: sub.endpoint }),
       });
@@ -727,8 +899,13 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// Auth UI wiring.
+$("authTabLogin").addEventListener("click", () => setAuthMode("login"));
+$("authTabRegister").addEventListener("click", () => setAuthMode("register"));
+$("authForm").addEventListener("submit", doAuth);
+$("logoutBtn").addEventListener("click", () => logout());
+$("logoutLink").addEventListener("click", () => logout());
+
 resetForm();
 applyLang();
-loadAll();
-updateNotifyUI();
-checkReminders();
+initAuth();

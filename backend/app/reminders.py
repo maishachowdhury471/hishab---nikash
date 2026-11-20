@@ -1,9 +1,10 @@
 """Daily reminder rules + Web Push sending for AI Hisab Nikash.
 
-Rule (single-user app, no login): a reminder is due when the last saved
-entry is more than 1 day old — i.e. at least one whole day has passed with
-no entry. Reminder time is 09:00 Asia/Dhaka. At most one reminder per day
-per device (de-duplicated on the due date).
+Rule (per user — every account has its own entries): a reminder is due
+when THAT user's last saved entry is more than 1 day old — i.e. at least
+one whole day has passed with no entry. Reminder time is 09:00 Asia/Dhaka.
+At most one reminder per day per user per device (de-duplicated on the
+due date).
 
 Honest platform limit (do not pretend otherwise): a PWA cannot fire a
 notification on time when Chrome is fully closed / force-stopped and the
@@ -68,16 +69,21 @@ def vapid_public_key():
     return os.environ.get("VAPID_PUBLIC_KEY") or None
 
 
-def compute_status(db, now=None):
-    """Reminder status from the saved entries.
+def compute_status(db, user_id=None, now=None):
+    """Reminder status from ONE user's saved entries.
 
     Returns dict with last_entry_date, days_since_last_entry, missed_dates
     (whole days with no entry, oldest first, max 30), missed_count, due,
     due_at (09:00 on the latest missed date) and next_due_at.
+    Entries without an owner (user_id NULL, from before logins existed)
+    belong to nobody and are never counted here.
     """
     now = now or now_dhaka()
     today = now.date()
-    row = db.query(Entry.date).order_by(Entry.date.desc()).first()
+    q = db.query(Entry.date)
+    if user_id is not None:
+        q = q.filter(Entry.user_id == user_id)
+    row = q.order_by(Entry.date.desc()).first()
     if row is None:
         return {"last_entry_date": None, "days_since_last_entry": None,
                 "missed_dates": [], "missed_count": 0, "due": False,
@@ -107,8 +113,11 @@ def compute_status(db, now=None):
             "next_due_at": next_due.isoformat() if next_due else None}
 
 
-def last_reminder_out(db):
-    row = (db.query(ReminderLog).order_by(ReminderLog.id.desc()).first())
+def last_reminder_out(db, user_id=None):
+    q = db.query(ReminderLog)
+    if user_id is not None:
+        q = q.filter(ReminderLog.user_id == user_id)
+    row = q.order_by(ReminderLog.id.desc()).first()
     return reminder_out(row) if row else None
 
 
@@ -120,13 +129,15 @@ def reminder_out(r: ReminderLog) -> dict:
             "status": r.status, "message": r.message or ""}
 
 
-def already_logged_today(db, device_id, due_date: date) -> bool:
-    """One reminder per device per due date — the de-dup check."""
+def already_logged_today(db, device_id, due_date: date, user_id=None) -> bool:
+    """One reminder per user per device per due date — the de-dup check."""
     start = datetime.combine(due_date, time(0, 0))
     end = start + timedelta(days=1)
     q = db.query(ReminderLog).filter(
         ReminderLog.kind == "daily",
         ReminderLog.due_at >= start, ReminderLog.due_at < end)
+    if user_id is not None:
+        q = q.filter(ReminderLog.user_id == user_id)
     if device_id:
         q = q.filter(ReminderLog.device_id == device_id)
     return q.first() is not None

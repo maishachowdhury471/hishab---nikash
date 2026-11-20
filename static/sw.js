@@ -10,8 +10,14 @@
    Triggers in stable Chrome. The 'sync' + in-app checks make sure a missed
    reminder still shows as soon as the app opens or the internet returns,
    with its original due time. */
-const CACHE = "hisab-nikash-v2";
+const CACHE = "hisab-nikash-v3";
 const SHELL = ["/", "/static/app.js", "/static/icon.svg", "/manifest.json"];
+
+// The service worker cannot read localStorage — the page hands it the
+// login token (message type "auth-token") so the Background Sync catch-up
+// check can call the (authed) reminders status API. No token → the sync
+// check is skipped; the in-app check covers it when the app opens.
+let authToken = null;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -86,23 +92,36 @@ self.addEventListener("sync", (event) => {
   // Connectivity just returned: check for reminders that were due offline
   // and show them now, WITH the original due time in the text.
   event.waitUntil(
-    fetch("/api/reminders/status").then((r) => r.json()).then((st) => {
-      if (!st.due || !st.due_at) return;
-      const body = "আজকের হিসাব কি লিখেছো? আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে — এখনই অ্যাপে ঢুকে আজকের খরচ বা আয় লিখে ফেলো।\nআসার কথা ছিল: " + bnDateTime(st.due_at);
-      return self.registration.showNotification("AI হিসাব নিকাশ — আজকের হিসাব", {
-        body,
-        icon: "/static/icon-192.png",
-        badge: "/static/icon.svg",
-        tag: "hn-daily-reminder",
-        data: { url: "/", due_at: st.due_at },
-      });
-    }).catch(() => { /* still offline — the in-app check will catch it */ })
+    (async () => {
+      if (!authToken) return; // logged out — nothing personal to check
+      try {
+        const res = await fetch("/api/reminders/status", {
+          headers: { "Authorization": "Bearer " + authToken },
+        });
+        if (!res.ok) return;
+        const st = await res.json();
+        if (!st.due || !st.due_at) return;
+        const body = "আজকের হিসাব কি লিখেছো? আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে — এখনই অ্যাপে ঢুকে আজকের খরচ বা আয় লিখে ফেলো।\nআসার কথা ছিল: " + bnDateTime(st.due_at);
+        return self.registration.showNotification("AI হিসাব নিকাশ — আজকের হিসাব", {
+          body,
+          icon: "/static/icon-192.png",
+          badge: "/static/icon.svg",
+          tag: "hn-daily-reminder",
+          data: { url: "/", due_at: st.due_at },
+        });
+      } catch (e) { /* still offline — the in-app check will catch it */ }
+    })()
   );
 });
 
 self.addEventListener("message", (event) => {
-  // Page asks the worker to show a notification (catch-up path).
+  // Page asks the worker to show a notification (catch-up path), or hands
+  // over the login token for the sync check.
   const data = event.data || {};
+  if (data.type === "auth-token") {
+    authToken = data.token || null;
+    return;
+  }
   if (data.type !== "show-reminder") return;
   event.waitUntil(
     self.registration.showNotification(data.title || "AI হিসাব নিকাশ", {

@@ -28,6 +28,39 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def ensure_schema():
+    """Lightweight migration for databases created before a schema change.
+
+    `Base.metadata.create_all()` only creates missing TABLES — it never adds
+    a column to an existing table. So when a new column (e.g. user_id) is
+    added to a model, the live Railway database would keep the old table
+    shape and every query touching the new column would crash. This adds
+    any missing columns (checked via the inspector, so it is a no-op on a
+    fresh database) plus the per-user index. Works on Postgres and SQLite.
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    needed = {
+        "entries": [("user_id", "INTEGER")],
+        "push_subscriptions": [("user_id", "INTEGER")],
+        "reminder_logs": [("user_id", "INTEGER")],
+    }
+    with engine.begin() as conn:
+        for table, cols in needed.items():
+            if table not in existing_tables:
+                continue
+            have = {c["name"] for c in insp.get_columns(table)}
+            for name, coltype in cols:
+                if name not in have:
+                    conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_entries_user_id "
+            "ON entries (user_id)"))
+
+
 def get_db():
     db = SessionLocal()
     try:
