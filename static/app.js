@@ -299,28 +299,24 @@ function renderDiag() {
   } catch (e) { /* ignore */ }
 }
 function nativeGooglePlugin() {
+  // DO NOT call window.Capacitor.registerPlugin: it does not exist in
+  // the runtime the APK injects (native-bridge.js) — it only exists in
+  // the full @capacitor/core npm bundle. The injected runtime already
+  // exposes the plugin stub at window.Capacitor.Plugins.GoogleAuth
+  // (signIn / signOut / refresh / initialize), whose methods call the
+  // native plugin through nativePromise. Calling registerPlugin threw
+  // "not a function" on every attempt in v9–v9.4 — that was the whole bug.
   try {
     if (!isCapacitor()) { hnDiag.lastFail = "no-capacitor"; return null; }
-    if (window.Capacitor.isPluginAvailable &&
-      window.Capacitor.isPluginAvailable("GoogleAuth")) {
-      hnDiag.lastFail = "ok";
-      return window.Capacitor.registerPlugin("GoogleAuth");
-    }
-    // Fallback: try registering directly even when the availability
-    // check says no — the proxy's methods fail at call time if there
-    // really is no native plugin, and that error is shown on screen.
-    try {
-      const GA = window.Capacitor.registerPlugin("GoogleAuth");
-      hnDiag.lastFail = "ok-direct";
-      hnDiag.directRegister = "ok (proxy returned)";
-      renderDiag();
-      return GA;
-    } catch (e) {
-      hnDiag.lastFail = "register-threw: " + (e && e.message ? e.message : e);
-      hnDiag.directRegister = "error: " + (e && e.message ? e.message : e);
-      renderDiag();
+    const C = window.Capacitor;
+    if (C.isPluginAvailable && !C.isPluginAvailable("GoogleAuth")) {
+      hnDiag.lastFail = "not-available";
       return null;
     }
+    const GA = C.Plugins && C.Plugins.GoogleAuth;
+    if (!GA) { hnDiag.lastFail = "no-plugins-stub"; return null; }
+    hnDiag.lastFail = "ok";
+    return GA;
   } catch (e) {
     hnDiag.lastFail = "threw: " + (e && e.message ? e.message : e);
     return null;
