@@ -554,6 +554,14 @@ def service_worker():
                         media_type="application/javascript")
 
 
+@app.get("/.well-known/assetlinks.json")
+def assetlinks():
+    # Digital Asset Links: lets the Android app (TWA) open the site
+    # fullscreen, verified as the same app (package com.hisabnikash.app).
+    return FileResponse(str(STATIC_DIR / ".well-known" / "assetlinks.json"),
+                        media_type="application/json")
+
+
 @app.get("/")
 def index():
     return FileResponse(str(STATIC_DIR / "index.html"), media_type="text/html")

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.hisabnikash.app",
+      "sha256_cert_fingerprints": [
+        "78:7E:B8:6E:68:E2:B1:6D:77:4A:CB:38:E6:18:39:7A:4B:FC:E9:6F:D4:AE:25:D6:9D:C3:D2:76:62:0F:1F:5E"
+      ]
+    }
+  }
+]
