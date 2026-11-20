@@ -67,6 +67,7 @@ const I18N = {
     authErrNetwork: "সার্ভারের সাথে যোগাযোগ করা যাচ্ছে না — ইন্টারনেট দেখে আবার চেষ্টা করুন।",
     authGoogleOff: "Google লগইন এখনো চালু হয়নি — শীঘ্রই চালু হবে।",
     authGoogleErr: "Google লগইন করা যায়নি, আবার চেষ্টা করুন।",
+    authGoogleNative: "Google দিয়ে লগইন",
     logout: "লগআউট", loggedInAs: "লগইন:",
   },
   en: {
@@ -117,6 +118,7 @@ const I18N = {
     authErrNetwork: "Cannot reach the server — check your internet and try again.",
     authGoogleOff: "Google sign-in is not set up yet — coming soon.",
     authGoogleErr: "Google sign-in failed, please try again.",
+    authGoogleNative: "Sign in with Google",
     logout: "Log out", loggedInAs: "Logged in:",
   },
 };
@@ -208,14 +210,16 @@ function loadGoogleScript() {
     document.head.appendChild(s);
   });
 }
-async function onGoogleCredential(resp) {
+async function postGoogleIdToken(idToken) {
+  // Shared by the browser (GIS) and the Capacitor APK (native sign-in):
+  // the server verifies the Google ID token and returns our own JWT.
   const err = $("authError");
   err.classList.add("hidden");
   let res;
   try {
     res = await fetch("/api/auth/google", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: resp.credential }),
+      body: JSON.stringify({ id_token: idToken }),
     });
   } catch (e2) {
     err.textContent = t("authErrNetwork");
@@ -229,6 +233,74 @@ async function onGoogleCredential(resp) {
   }
   afterLogin(await res.json());
 }
+async function onGoogleCredential(resp) {
+  await postGoogleIdToken(resp.credential);
+}
+
+/* ---------------- Native Google sign-in (Capacitor APK only) -----------
+   The APK loads this same page in its own WebView, where Google Identity
+   Services is blocked (disallowed_useragent). So inside the APK we call
+   the native @codetrix-studio/capacitor-google-auth plugin through the
+   Capacitor bridge (window.Capacitor.registerPlugin — the native side
+   injects the plugin headers, so no plugin JS needs importing here) and
+   send its ID token to the same /api/auth/google endpoint. In a normal
+   browser none of this runs — the GIS button above is used instead. */
+function isCapacitor() {
+  try {
+    return !!(window.Capacitor && window.Capacitor.getPlatform &&
+      window.Capacitor.getPlatform() !== "web");
+  } catch (e) { return false; }
+}
+function nativeGooglePlugin() {
+  try {
+    if (!isCapacitor()) return null;
+    if (!window.Capacitor.isPluginAvailable ||
+      !window.Capacitor.isPluginAvailable("GoogleAuth")) return null;
+    return window.Capacitor.registerPlugin("GoogleAuth");
+  } catch (e) { return null; }
+}
+async function onNativeGoogleSignIn() {
+  const err = $("authError");
+  err.classList.add("hidden");
+  const GA = nativeGooglePlugin();
+  if (!GA) {
+    err.textContent = t("authGoogleErr");
+    err.classList.remove("hidden");
+    return;
+  }
+  let user;
+  try {
+    user = await GA.signIn();
+  } catch (e) {
+    err.textContent = t("authGoogleErr");
+    err.classList.remove("hidden");
+    return;
+  }
+  const idToken = (user && user.authentication && user.authentication.idToken) ||
+    (user && user.idToken);
+  if (!idToken) {
+    err.textContent = t("authGoogleErr");
+    err.classList.remove("hidden");
+    return;
+  }
+  await postGoogleIdToken(idToken);
+}
+async function initNativeGoogle(cfg) {
+  // Show the native button instead of the GIS button. Returns true when
+  // the native path is in use; false means "fall through to GIS".
+  const GA = nativeGooglePlugin();
+  if (!GA) return false;
+  try {
+    // Native initialize is a no-op that resolves; the real config
+    // (clientId/scopes) lives in the APK's capacitor.config.ts.
+    if (GA.initialize) await GA.initialize({
+      clientId: cfg.google_client_id, scopes: ["profile", "email"],
+    });
+  } catch (e) { /* continue — sign-in still works without it */ }
+  $("nativeGoogleBox").classList.remove("hidden");
+  $("nativeGoogleBtn").onclick = onNativeGoogleSignIn;
+  return true;
+}
 async function initGoogle() {
   let cfg = {};
   try {
@@ -239,6 +311,9 @@ async function initGoogle() {
     $("googleNote").classList.remove("hidden");
     return;
   }
+  // Inside the Capacitor APK, use native Google sign-in (GIS is blocked
+  // in a WebView). In a normal browser this returns false and GIS is used.
+  if (await initNativeGoogle(cfg)) return;
   if (!await loadGoogleScript()) {
     $("googleNote").classList.remove("hidden");
     return;
@@ -262,6 +337,12 @@ async function initGoogle() {
 }
 function logout() {
   currentUser = null;
+  // Best effort: also sign out of native Google inside the APK, so the
+  // next sign-in shows the account chooser again. Never block logout.
+  try {
+    const GA = nativeGooglePlugin();
+    if (GA && GA.signOut) GA.signOut().catch(() => {});
+  } catch (e) { /* ignore */ }
   try {
     localStorage.removeItem("hn-token");
     localStorage.removeItem("hn-username");

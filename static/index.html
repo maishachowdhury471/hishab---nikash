@@ -108,6 +108,14 @@
     <div id="googleBox" class="hidden mt-5">
       <div id="googleBtnSlot" class="flex justify-center"></div>
     </div>
+    <!-- Native Google sign-in (Capacitor APK only — Google Identity Services
+         is blocked inside a WebView, so the APK signs in natively) -->
+    <div id="nativeGoogleBox" class="hidden mt-5">
+      <button id="nativeGoogleBtn" type="button" class="w-full max-w-[360px] mx-auto flex items-center justify-center gap-3 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg py-3 px-4 font-bold text-gray-700 shadow-sm">
+        <span class="w-5 h-5 shrink-0 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold" style="color:#4285F4">G</span>
+        <span data-i18n="authGoogleNative">Google দিয়ে লগইন</span>
+      </button>
+    </div>
     <p id="googleNote" class="hidden text-xs text-gray-400 mt-4 text-center break-words" data-i18n="authGoogleOff">Google লগইন এখনো চালু হয়নি — শীঘ্রই চালু হবে।</p>
     <p id="authError" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 break-words mt-4"></p>
   </section>
