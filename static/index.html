@@ -9,6 +9,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: "class" };</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   html, body { overflow-x: hidden; max-width: 100%; }
@@ -31,7 +32,50 @@
   @media (max-width: 360px) {
     .stat-amount { font-size: .95rem; }
   }
+  /* ---------- Dark mode (class-based, covers whole app) ---------- */
+  html.dark { color-scheme: dark; }
+  html.dark body { background: #111827 !important; color: #e5e7eb !important; }
+  html.dark .card { background: #1f2937 !important; color: #f3f4f6 !important; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  html.dark .bg-gray-100 { background-color: #374151 !important; color: #f3f4f6 !important; }
+  html.dark .bg-gray-50 { background-color: #374151 !important; color: #f3f4f6 !important; }
+  html.dark .bg-gray-200 { background-color: #4b5563 !important; color: #f3f4f6 !important; }
+  html.dark .hover\:bg-gray-200:hover { background-color: #4b5563 !important; }
+  html.dark .hover\:bg-gray-300:hover { background-color: #6b7280 !important; }
+  html.dark .bg-emerald-50 { background-color: #064e3b !important; color: #d1fae5 !important; }
+  html.dark .bg-red-50 { background-color: #450a0a !important; color: #fecaca !important; }
+  html.dark .bg-blue-50 { background-color: #172554 !important; color: #bfdbfe !important; }
+  html.dark .bg-amber-50 { background-color: #451a03 !important; color: #fde68a !important; }
+  html.dark .border-emerald-200 { border-color: #065f46 !important; }
+  html.dark .border-amber-300 { border-color: #92400e !important; }
+  html.dark .border-amber-500 { border-color: #f59e0b !important; }
+  html.dark input, html.dark select, html.dark textarea { background-color: #374151 !important; color: #f3f4f6 !important; border-color: #4b5563 !important; }
+  html.dark input::placeholder { color: #9ca3af !important; }
+  html.dark select option { background-color: #374151; color: #f3f4f6; }
+  html.dark .text-gray-500, html.dark .text-gray-600 { color: #d1d5db !important; }
+  html.dark .text-gray-400 { color: #9ca3af !important; }
+  html.dark .text-emerald-700 { color: #6ee7b7 !important; }
+  html.dark .text-emerald-800 { color: #a7f3d0 !important; }
+  html.dark .text-red-600 { color: #fca5a5 !important; }
+  html.dark .text-blue-700 { color: #93c5fd !important; }
+  html.dark .text-amber-700 { color: #fcd34d !important; }
+  html.dark .text-amber-800 { color: #fde68a !important; }
+  html.dark .bar-track { background: #374151 !important; }
+  html.dark .divide-y > * + * { border-color: #374151 !important; }
+  html.dark table tr { border-color: #374151 !important; }
+  html.dark .hover\:bg-red-100:hover { background-color: #7f1d1d !important; }
+  html.dark .modal-card { background: #1f2937 !important; color: #f3f4f6 !important; }
+  html.dark .developer-footer a { color: #6ee7b7 !important; }
 </style>
+<script>
+  /* Apply saved theme before first paint: saved choice wins, else system preference. */
+  (function () {
+    try {
+      var saved = localStorage.getItem("hn-theme");
+      var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (dark) document.documentElement.classList.add("dark");
+    } catch (e) { /* no storage — stay light */ }
+  })();
+</script>
 </head>
 <body class="bg-gray-100 text-gray-800 min-h-screen w-full">
 
@@ -44,7 +88,10 @@
         <p class="text-[11px] sm:text-xs text-emerald-100 leading-snug truncate" data-i18n="appSubtitle">দৈনন্দিন আয়-ব্যয়ের স্মার্ট হিসাব</p>
       </div>
     </div>
-    <button id="langToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full px-3 py-2 text-sm font-semibold min-h-[40px]">English</button>
+    <div class="flex items-center gap-2 shrink-0">
+      <button id="themeToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full w-10 h-10 min-h-[40px] text-lg flex items-center justify-center" aria-label="ডার্ক মোড চালু করুন" title="ডার্ক মোড চালু করুন">🌙</button>
+      <button id="langToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full px-3 py-2 text-sm font-semibold min-h-[40px]">English</button>
+    </div>
   </div>
 </header>
 
@@ -173,8 +220,30 @@
     <p class="text-gray-600 mt-1 break-words" data-i18n="installHint">ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। অফলাইনে অ্যাপের চেহারা দেখা যাবে, তবে নতুন হিসাব সংরক্ষণে ইন্টারনেট লাগবে।</p>
   </section>
 
-  <footer class="text-center text-xs text-gray-400 mt-6 px-2">AI Hisab Nikash • <span data-i18n="footer">আপনার হিসাব, আপনার হাতে</span></footer>
+  <!-- Developer footer — very bottom of the app -->
+  <footer class="developer-footer card mt-6 p-4 sm:p-5 text-center">
+    <p class="text-sm text-gray-500" data-i18n="developedBy">এই অ্যাপটি ডেভেলপ করেছেন</p>
+    <p class="mt-1">
+      <a href="https://nabinurislamroni.me" target="_blank" rel="noopener" class="font-bold text-emerald-700 hover:underline text-base sm:text-lg break-words">Nabinur Islam Roni</a>
+    </p>
+    <p class="text-xs text-gray-400 mt-2">AI Hisab Nikash • <span data-i18n="footer">আপনার হিসাব, আপনার হাতে</span></p>
+  </footer>
 </main>
+
+<!-- Delete confirmation modal (custom, responsive) -->
+<div id="deleteModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+  <div id="deleteModalBackdrop" class="absolute inset-0 bg-black/60"></div>
+  <div class="modal-card relative w-full max-w-sm rounded-2xl bg-white p-5 sm:p-6 shadow-2xl">
+    <div class="mx-auto w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-2xl" aria-hidden="true">🗑️</div>
+    <h3 id="deleteModalTitle" class="font-bold text-lg text-center mt-3 break-words" data-i18n="confirmDelTitle">এই হিসাবটি মুছে ফেলবেন?</h3>
+    <p class="text-sm text-gray-500 text-center mt-1 break-words" data-i18n="confirmDelText">মুছে ফেললে এই হিসাবটি আর ফিরে আসবে না।</p>
+    <div id="deleteModalEntry" class="mt-4 bg-gray-50 rounded-lg p-3 text-sm break-words text-center"></div>
+    <div class="flex flex-col-reverse sm:flex-row gap-2 mt-5">
+      <button id="deleteModalCancel" type="button" class="flex-1 min-w-0 bg-gray-200 hover:bg-gray-300 rounded-lg py-3 font-semibold" data-i18n="cancel">বাতিল</button>
+      <button id="deleteModalConfirm" type="button" class="flex-1 min-w-0 bg-red-600 hover:bg-red-700 text-white rounded-lg py-3 font-bold" data-i18n="del">মুছুন</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

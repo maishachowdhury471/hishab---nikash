@@ -40,7 +40,8 @@ const I18N = {
     noAmount: "টাকার পরিমাণ পাওয়া যায়নি — ফরমে নিজে বসান।",
     listening: "শুনছি… বলুন", micUnsupported: "এই ব্রাউজারে ভয়েস সমর্থিত নয়।",
     overspendTitle: "⚠️ বেশি খরচের সতর্কতা", overspendLine: "খাতে খরচ গত মাসের চেয়ে বেড়েছে",
-    edit: "সম্পাদনা", del: "মুছুন", confirmDel: "এই হিসাবটি মুছে ফেলবেন?",
+    edit: "সম্পাদনা", del: "মুছুন", confirmDelTitle: "এই হিসাবটি মুছে ফেলবেন?", confirmDelText: "মুছে ফেললে এই হিসাবটি আর ফিরে আসবে না।",
+    developedBy: "এই অ্যাপটি ডেভেলপ করেছেন", themeDarkLabel: "ডার্ক মোড চালু করুন", themeLightLabel: "লাইট মোড চালু করুন",
     totalDay: "মোট", vsLast: "গত মাসের চেয়ে", noChange: "পরিবর্তন নেই",
   },
   en: {
@@ -64,12 +65,27 @@ const I18N = {
     noAmount: "No amount found — please enter it in the form.",
     listening: "Listening… please speak", micUnsupported: "Voice input is not supported in this browser.",
     overspendTitle: "⚠️ Overspend warning", overspendLine: "spending is up vs last month",
-    edit: "Edit", del: "Delete", confirmDel: "Delete this entry?",
+    edit: "Edit", del: "Delete", confirmDelTitle: "Delete this entry?", confirmDelText: "Once deleted, this entry cannot be recovered.",
+    developedBy: "Developed by", themeDarkLabel: "Switch to dark mode", themeLightLabel: "Switch to light mode",
     totalDay: "Total", vsLast: "vs last month", noChange: "No change",
   },
 };
 
 let lang = localStorage.getItem("hn-lang") || "bn";
+let theme = localStorage.getItem("hn-theme") || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+function applyTheme() {
+  const dark = theme === "dark";
+  document.documentElement.classList.toggle("dark", dark);
+  const btn = $("themeToggle");
+  if (btn) {
+    btn.textContent = dark ? "☀️" : "🌙";
+    btn.setAttribute("aria-label", t(dark ? "themeLightLabel" : "themeDarkLabel"));
+    btn.setAttribute("title", t(dark ? "themeLightLabel" : "themeDarkLabel"));
+  }
+  try { localStorage.setItem("hn-theme", theme); } catch (e) { /* ignore */ }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = dark ? "#111827" : "#047857";
+}
 let curMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 let curType = "expense";
 let entriesCache = [];
@@ -106,11 +122,13 @@ function applyLang() {
   $("aiParseBtn").setAttribute("title", t("parseBtnLabel"));
   $("micBtn").setAttribute("aria-label", t("micLabel"));
   $("micBtn").setAttribute("title", t("micLabel"));
+  applyTheme();
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
   renderAll();
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
+$("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
 
 /* ---------------- month ---------------- */
 function shiftMonth(delta) {
@@ -185,11 +203,41 @@ function startEdit(entry) {
   $("note").value = entry.note || "";
   $("entryForm").scrollIntoView({ behavior: "smooth" });
 }
-async function deleteEntry(id) {
-  if (!confirm(t("confirmDel"))) return;
+/* ---------------- delete modal (custom) ---------------- */
+let pendingDeleteId = null;
+let pendingDeleteEntry = null;
+function openDeleteModal(entry) {
+  pendingDeleteId = entry.id;
+  pendingDeleteEntry = entry;
+  const box = $("deleteModalEntry");
+  box.innerHTML = `<div class="font-semibold">${escapeHtml(CAT_NAME[lang][entry.category] || entry.category)}${entry.note ? ` — ${escapeHtml(entry.note)}` : ""}</div>`
+    + `<div class="font-bold mt-1 ${entry.type === "income" ? "text-emerald-700" : "text-red-600"}">${entry.type === "income" ? "+" : "−"}${fmtMoney(entry.amount)} • ${fmtDate(entry.date)}</div>`;
+  const modal = $("deleteModal");
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+  $("deleteModalCancel").focus();
+}
+function closeDeleteModal() {
+  const modal = $("deleteModal");
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+  pendingDeleteId = null;
+  pendingDeleteEntry = null;
+}
+async function confirmDeleteModal() {
+  if (pendingDeleteId == null) return;
+  const id = pendingDeleteId;
+  closeDeleteModal();
   await fetch(`/api/entries/${id}`, { method: "DELETE" });
   loadAll();
 }
+$("deleteModalCancel").addEventListener("click", closeDeleteModal);
+$("deleteModalConfirm").addEventListener("click", confirmDeleteModal);
+$("deleteModalBackdrop").addEventListener("click", closeDeleteModal);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("deleteModal").classList.contains("hidden")) closeDeleteModal();
+});
+function deleteEntry(entry) { openDeleteModal(entry); }
 
 /* ---------------- AI quick entry ---------------- */
 async function parseQuick(text) {
@@ -285,7 +333,7 @@ function renderList() {
           <button class="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-3 py-2 min-h-[40px]" data-act="del">${t("del")}</button>
         </div>`;
       row.querySelector('[data-act="edit"]').addEventListener("click", () => startEdit(e));
-      row.querySelector('[data-act="del"]').addEventListener("click", () => deleteEntry(e.id));
+      row.querySelector('[data-act="del"]').addEventListener("click", () => deleteEntry(e));
       list.appendChild(row);
     });
   });
