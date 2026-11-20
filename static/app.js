@@ -260,12 +260,64 @@ const LIVE_API = "https://hishab-nikash-production.up.railway.app";
 function apiBase() {
   try { return isCapacitor() ? LIVE_API : ""; } catch (e) { return ""; }
 }
+/* Diagnostic readout (v9.3): the native plugin never appears on Maisha's
+   phone even though the bridge is there, in both the remote-page build
+   (v1.1.1) and the local-bundle build (v1.2.0). Collect what the page
+   actually sees so a screenshot of the login screen shows the cause. */
+const hnDiag = {};
+function collectDiag(stage) {
+  try {
+    const C = window.Capacitor || null;
+    hnDiag.stage = stage;
+    hnDiag.hasCapacitor = !!C;
+    hnDiag.platform = C && C.getPlatform ? String(C.getPlatform()) : "n/a";
+    hnDiag.hasIsPluginAvailable = C ? typeof C.isPluginAvailable : "n/a";
+    try {
+      hnDiag.isPluginAvailable = C && C.isPluginAvailable
+        ? String(C.isPluginAvailable("GoogleAuth")) : "n/a";
+    } catch (e) { hnDiag.isPluginAvailable = "error: " + (e && e.message ? e.message : e); }
+    try {
+      hnDiag.pluginHeaders = C && C.PluginHeaders
+        ? C.PluginHeaders.map((h) => h.name).join(",") : "missing";
+    } catch (e) { hnDiag.pluginHeaders = "error"; }
+    try {
+      hnDiag.pluginsKeys = C && C.Plugins ? Object.keys(C.Plugins).join(",") : "missing";
+    } catch (e) { hnDiag.pluginsKeys = "error"; }
+    hnDiag.directRegister = hnDiag.directRegister || "not-tried";
+    hnDiag.signInError = hnDiag.signInError || "";
+  } catch (e) { /* never break login for diagnostics */ }
+  renderDiag();
+}
+function renderDiag() {
+  try {
+    const box = $("diagBox");
+    if (!box) return;
+    if (!isCapacitor()) { box.classList.add("hidden"); return; }
+    const lines = Object.keys(hnDiag).map((k) => k + ": " + hnDiag[k]);
+    box.textContent = "পরীক্ষার তথ্য (স্ক্রিনশট দিও):\n" + lines.join("\n");
+    box.classList.remove("hidden");
+  } catch (e) { /* ignore */ }
+}
 function nativeGooglePlugin() {
   try {
     if (!isCapacitor()) return null;
-    if (!window.Capacitor.isPluginAvailable ||
-      !window.Capacitor.isPluginAvailable("GoogleAuth")) return null;
-    return window.Capacitor.registerPlugin("GoogleAuth");
+    if (window.Capacitor.isPluginAvailable &&
+      window.Capacitor.isPluginAvailable("GoogleAuth")) {
+      return window.Capacitor.registerPlugin("GoogleAuth");
+    }
+    // Fallback: try registering directly even when the availability
+    // check says no — the proxy's methods fail at call time if there
+    // really is no native plugin, and that error is shown on screen.
+    try {
+      const GA = window.Capacitor.registerPlugin("GoogleAuth");
+      hnDiag.directRegister = "ok (proxy returned)";
+      renderDiag();
+      return GA;
+    } catch (e) {
+      hnDiag.directRegister = "error: " + (e && e.message ? e.message : e);
+      renderDiag();
+      return null;
+    }
   } catch (e) { return null; }
 }
 async function onNativeGoogleSignIn() {
@@ -281,7 +333,10 @@ async function onNativeGoogleSignIn() {
   try {
     user = await GA.signIn();
   } catch (e) {
-    err.textContent = t("authGoogleErr");
+    const msg = (e && e.message) ? e.message : String(e);
+    hnDiag.signInError = msg;
+    renderDiag();
+    err.textContent = "Google লগইন হয়নি: " + msg;
     err.classList.remove("hidden");
     return;
   }
@@ -297,6 +352,7 @@ async function onNativeGoogleSignIn() {
 async function initNativeGoogle(cfg) {
   // Show the native button instead of the GIS button. Returns true when
   // the native path is in use; false means "fall through to GIS".
+  collectDiag("init");
   const GA = nativeGooglePlugin();
   if (!GA) return false;
   try {
@@ -333,6 +389,7 @@ async function initGoogle() {
     // The bridge is there but the native plugin never appeared: GIS
     // cannot work inside the app's WebView (it would open a blank
     // Google page in Chrome), so do not show it — say so instead.
+    collectDiag("failed");
     const note = $("googleNote");
     note.textContent = "অ্যাপের ভেতরে Google লগইন চালু হচ্ছে না — অ্যাপটি বন্ধ করে আবার খুলে দেখুন।";
     note.classList.remove("hidden");
