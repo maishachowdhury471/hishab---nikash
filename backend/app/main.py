@@ -38,9 +38,19 @@ async def _lifespan(_app):
 
 app = FastAPI(title="AI Hisab Nikash", lifespan=_lifespan)
 
-EXPENSE_CATEGORIES = ["bazar", "khabar", "jatayat", "bill", "oshudh",
-                      "poshak", "shikkha", "binodon", "onnanno"]
-INCOME_CATEGORIES = ["beton", "bebsha", "onnanno-ay"]
+EXPENSE_CATEGORIES = ["bazar", "khabar", "jatayat", "bill", "bari-bhara",
+                      "biddut-bill", "gas-bill", "pani-bill", "internet-bill",
+                      "mobile-bill", "oshudh", "doctor", "poshak", "juta-bag",
+                      "shikkha", "boi-stationery", "binodon", "bhromon",
+                      "upohar", "dan", "dhormio", "biye", "proshadhoni",
+                      "selun", "laundry", "grihosthali", "electronics",
+                      "janbahon-rokkhon", "petrol", "posha-prani", "krishi",
+                      "bebshar-khoroch", "rin-porishodh", "bima", "sonchoy",
+                      "tax", "shishur-khoroch", "kheladhula", "onnanno"]
+INCOME_CATEGORIES = ["beton", "bebsha", "freelancing", "tuition",
+                     "krishi-ay", "bhara-ay", "shud", "bonus", "upohar-ay",
+                     "remittance", "online-ay", "part-time", "commission",
+                     "purono-bikri", "rin-ferot", "onnanno-ay"]
 ALL_CATEGORIES = EXPENSE_CATEGORIES + INCOME_CATEGORIES
 
 

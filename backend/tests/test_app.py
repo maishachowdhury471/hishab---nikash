@@ -70,9 +70,81 @@ def test_parse_bengali_digits():
 
 def test_parse_bill_and_food_keywords():
     d = client.post("/api/parse", json={"text": "বিদ্যুৎ বিল দিলাম ১২০০ টাকা"}).json()
-    assert d["category"] == "bill" and d["amount"] == 1200
+    assert d["category"] == "biddut-bill" and d["amount"] == 1200
     d = client.post("/api/parse", json={"text": "দুপুরে খাবার খেলাম ৩০০ টাকা"}).json()
     assert d["category"] == "khabar" and d["amount"] == 300
+
+
+def test_parse_new_expense_bills_and_rent():
+    cases = [
+        ("বাড়ি ভাড়া দিলাম ১০০০০ টাকা", "bari-bhara", 10000),
+        ("গ্যাস বিল দিলাম ৮০০ টাকা", "gas-bill", 800),
+        ("পানি বিল দিলাম ৫০০ টাকা", "pani-bill", 500),
+        ("ইন্টারনেট বিল দিলাম ১০০০ টাকা", "internet-bill", 1000),
+        ("মোবাইল রিচার্জ করলাম ২০০ টাকা", "mobile-bill", 200),
+        ("বিল দিলাম ১০০০ টাকা", "bill", 1000),
+    ]
+    for text, cat, amt in cases:
+        d = client.post("/api/parse", json={"text": text}).json()
+        assert d["type"] == "expense" and d["category"] == cat and d["amount"] == amt, (text, d)
+
+
+def test_parse_rent_collision():
+    d = client.post("/api/parse", json={"text": "বাড়ি ভাড়া পেলাম ২০০০০ টাকা"}).json()
+    assert d["type"] == "income" and d["category"] == "bhara-ay" and d["amount"] == 20000
+    d = client.post("/api/parse", json={"text": "বাড়ি ভাড়া দিলাম ১০০০০ টাকা"}).json()
+    assert d["type"] == "expense" and d["category"] == "bari-bhara" and d["amount"] == 10000
+
+
+def test_parse_new_income_categories():
+    cases = [
+        ("টিউশন ফি পেলাম ৫০০০ টাকা", "tuition", 5000),
+        ("ফ্রিল্যান্সিং থেকে পেলাম ১৫০০০ টাকা", "freelancing", 15000),
+        ("বিদেশ থেকে টাকা পেলাম ২০০০০", "remittance", 20000),
+        ("পুরনো ফ্রিজ বিক্রি করে ৮০০০ টাকা পেলাম", "purono-bikri", 8000),
+        ("বোনাস পেলাম ৫০০০ টাকা", "bonus", 5000),
+        ("কমিশন পেলাম ৩০০০ টাকা", "commission", 3000),
+    ]
+    for text, cat, amt in cases:
+        d = client.post("/api/parse", json={"text": text}).json()
+        assert d["type"] == "income" and d["category"] == cat and d["amount"] == amt, (text, d)
+
+
+def test_parse_doctor_book_petrol_zakat():
+    cases = [
+        ("ডাক্তার দেখালাম ৮০০ টাকা", "doctor", 800),
+        ("বই কিনলাম ৩০০ টাকা", "boi-stationery", 300),
+        ("পেট্রোল কিনলাম ১০০০ টাকা", "petrol", 1000),
+        ("জাকাত দিলাম ২০০০ টাকা", "dan", 2000),
+        ("মসজিদে দিলাম ৫০০ টাকা", "dhormio", 500),
+        ("জুতা কিনলাম ১২০০ টাকা", "juta-bag", 1200),
+        ("ভ্রমণ করলাম ৫০০০ টাকা", "bhromon", 5000),
+    ]
+    for text, cat, amt in cases:
+        d = client.post("/api/parse", json={"text": text}).json()
+        assert d["type"] == "expense" and d["category"] == cat and d["amount"] == amt, (text, d)
+
+
+def test_parse_business_expense_and_tuition_fee():
+    d = client.post("/api/parse", json={"text": "ব্যবসার খরচ ৫০০০ টাকা"}).json()
+    assert d["type"] == "expense" and d["category"] == "bebshar-khoroch"
+    d = client.post("/api/parse", json={"text": "টিউশন ফি দিলাম ৫০০০ টাকা"}).json()
+    assert d["type"] == "expense" and d["category"] == "shikkha"
+    d = client.post("/api/parse", json={"text": "ঋণ পরিশোধ করলাম ৫০০০ টাকা"}).json()
+    assert d["type"] == "expense" and d["category"] == "rin-porishodh"
+    d = client.post("/api/parse", json={"text": "কিস্তি দিলাম ৩০০০ টাকা"}).json()
+    assert d["type"] == "expense" and d["category"] == "rin-porishodh"
+
+
+def test_new_categories_accepted_and_in_summary():
+    _add({"type": "expense", "amount": 10000, "category": "bari-bhara",
+          "note": "বাসা", "date": TODAY.isoformat()})
+    _add({"type": "income", "amount": 20000, "category": "remittance",
+          "note": "", "date": TODAY.isoformat()})
+    s = client.get(f"/api/summary?month={THIS_MONTH}").json()
+    assert s["by_category"]["bari-bhara"] == 10000
+    assert s["by_category"]["remittance"] == 20000
+    assert s["expense"] == 10000 and s["income"] == 20000
 
 
 def test_parse_no_amount_returns_null():
