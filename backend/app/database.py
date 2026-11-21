@@ -47,7 +47,9 @@ def ensure_schema():
         "push_subscriptions": [("user_id", "INTEGER")],
         "reminder_logs": [("user_id", "INTEGER")],
         "users": [("email", "VARCHAR"), ("google_sub", "VARCHAR"),
-                  ("auth_provider", "VARCHAR")],
+                  ("auth_provider", "VARCHAR"),
+                  ("role", "VARCHAR"), ("support_until", "TIMESTAMP"),
+                  ("last_login_at", "TIMESTAMP")],
     }
     with engine.begin() as conn:
         for table, cols in needed.items():
@@ -58,6 +60,11 @@ def ensure_schema():
                 if name not in have:
                     conn.execute(
                         text(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}"))
+        # Site settings (v10) — create_all() covers fresh databases, but
+        # an existing live database needs the table added explicitly.
+        conn.execute(text(
+            'CREATE TABLE IF NOT EXISTS site_settings '
+            '("key" VARCHAR PRIMARY KEY, "value" VARCHAR)'))
         # The users.password_hash column is a leftover from the
         # short-lived v6 password login — it stays in the table (no
         # destructive drop) but no code reads or writes it. New Google

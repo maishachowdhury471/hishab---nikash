@@ -69,6 +69,36 @@ const I18N = {
     authGoogleErr: "Google লগইন করা যায়নি, আবার চেষ্টা করুন।",
     authGoogleNative: "Google দিয়ে লগইন",
     logout: "লগআউট", loggedInAs: "লগইন:",
+    adminBtn: "🛡️ অ্যাডমিন", adminTitle: "🛡️ অ্যাডমিন ড্যাশবোর্ড",
+    adminBack: "ফিরে যাও", adminStatsTitle: "পরিসংখ্যান",
+    statTotalUsers: "মোট ইউজার", statNewUsers: "নতুন (৭ দিন)",
+    statTotalEntries: "মোট এন্ট্রি", statEntriesToday: "আজকের এন্ট্রি",
+    statActiveUsers: "সক্রিয় (৭ দিন)",
+    maintTitle: "রক্ষণাবেক্ষণ মোড",
+    maintToggle: "রক্ষণাবেক্ষণ মোড চালু",
+    maintMsgPh: "রক্ষণাবেক্ষণের বার্তা (ঐচ্ছিক)",
+    maintSave: "সংরক্ষণ করুন",
+    maintOnlyAdmin: "শুধু মূল অ্যাডমিনই রক্ষণাবেক্ষণ বদলাতে পারেন।",
+    maintBanner: "⚠️ রক্ষণাবেক্ষণ মোড চালু আছে — সাধারণ ব্যবহারকারীরা এখন অ্যাপ ব্যবহার করতে পারছেন না।",
+    maintScreenTitle: "রক্ষণাবেক্ষণ চলছে",
+    tryLater: "পরে আবার চেষ্টা করুন।",
+    adminUsersTitle: "ব্যবহারকারী",
+    adminSearchPh: "নাম বা ইমেইল খুঁজুন…",
+    roleOnlyAdmin: "শুধু মূল অ্যাডমিনই রোল বদলাতে পারেন।",
+    roleAdmin: "অ্যাডমিন", roleSupport: "সাপোর্ট", roleUser: "ইউজার",
+    daysLeft: "দিন বাকি",
+    support2d: "সাপোর্ট ২ দিন", support3d: "সাপোর্ট ৩ দিন",
+    support7d: "সাপোর্ট ৭ দিন", support15d: "সাপোর্ট ১৫ দিন",
+    makeAdmin: "অ্যাডমিন করুন", roleChange: "পরিবর্তন করুন",
+    joinedLabel: "যোগদান", entriesLabel: "এন্ট্রি",
+    lastActiveLabel: "সর্বশেষ সক্রিয়",
+    noUsersFound: "কোনো ব্যবহারকারী পাওয়া যায়নি।",
+    adminLoadErr: "অ্যাডমিন তথ্য লোড করা যায়নি — আবার চেষ্টা করুন।",
+    roleChanged: "রোল পরিবর্তন করা হয়েছে।",
+    settingsSaved: "সেটিংস সংরক্ষণ করা হয়েছে।",
+    selfRowNote: "নিজের রোল বদলানো যায় না।",
+    mainAdminNote: "মূল অ্যাডমিনের রোল বদলানো যায় না।",
+    neverActive: "এখনো সক্রিয় হননি",
   },
   en: {
     appTitle: "AI Hisab Nikash", appSubtitle: "Smart daily income-expense tracker",
@@ -120,6 +150,36 @@ const I18N = {
     authGoogleErr: "Google sign-in failed, please try again.",
     authGoogleNative: "Sign in with Google",
     logout: "Log out", loggedInAs: "Logged in:",
+    adminBtn: "🛡️ Admin", adminTitle: "🛡️ Admin Dashboard",
+    adminBack: "Back", adminStatsTitle: "Statistics",
+    statTotalUsers: "Total users", statNewUsers: "New (7 days)",
+    statTotalEntries: "Total entries", statEntriesToday: "Today's entries",
+    statActiveUsers: "Active (7 days)",
+    maintTitle: "Maintenance mode",
+    maintToggle: "Turn on maintenance mode",
+    maintMsgPh: "Maintenance message (optional)",
+    maintSave: "Save",
+    maintOnlyAdmin: "Only the main admin can change maintenance.",
+    maintBanner: "⚠️ Maintenance mode is on — normal users cannot use the app right now.",
+    maintScreenTitle: "Under maintenance",
+    tryLater: "Please try again later.",
+    adminUsersTitle: "Users",
+    adminSearchPh: "Search by name or email…",
+    roleOnlyAdmin: "Only the main admin can change roles.",
+    roleAdmin: "Admin", roleSupport: "Support", roleUser: "User",
+    daysLeft: "days left",
+    support2d: "Support 2 days", support3d: "Support 3 days",
+    support7d: "Support 7 days", support15d: "Support 15 days",
+    makeAdmin: "Make admin", roleChange: "Change",
+    joinedLabel: "Joined", entriesLabel: "Entries",
+    lastActiveLabel: "Last active",
+    noUsersFound: "No users found.",
+    adminLoadErr: "Could not load admin data — please try again.",
+    roleChanged: "Role changed.",
+    settingsSaved: "Settings saved.",
+    selfRowNote: "You cannot change your own role.",
+    mainAdminNote: "The main admin's role cannot be changed.",
+    neverActive: "Not active yet",
   },
 };
 
@@ -165,15 +225,83 @@ async function apiFetch(path, opts = {}) {
 function showAuth() {
   $("authScreen").classList.remove("hidden");
   $("appMain").classList.add("hidden");
+  $("adminScreen").classList.add("hidden");
+  $("maintenanceScreen").classList.add("hidden");
   $("logoutBtn").classList.add("hidden");
+  $("adminBtn").classList.add("hidden");
   $("loggedInLine").classList.add("hidden");
 }
 function showApp() {
   $("authScreen").classList.add("hidden");
+  $("adminScreen").classList.add("hidden");
+  $("maintenanceScreen").classList.add("hidden");
   $("appMain").classList.remove("hidden");
   $("logoutBtn").classList.remove("hidden");
   $("loggedInLine").classList.remove("hidden");
   $("loggedInUser").textContent = currentUser ? currentUser.username : "";
+  updateAdminUI();
+}
+
+/* ---------------- admin dashboard + maintenance mode (v10) ------------
+   One permanent admin (Maisha) monitors the whole site; she can also
+   grant time-limited "support" roles (2/3/7/15 days) and turn
+   maintenance mode on/off from the dashboard. Support staff can view
+   the dashboard but cannot change roles or settings. The same web code
+   runs in the PWA and in the Capacitor APK, so both get it identically. */
+let siteCfg = null;
+async function fetchSiteConfig() {
+  try {
+    const res = await fetch(apiBase() + "/api/config");
+    if (res.ok) { siteCfg = await res.json(); return siteCfg; }
+  } catch (e) { /* offline — keep the last known config */ }
+  return siteCfg || {};
+}
+function isStaffUser() {
+  const r = currentUser && currentUser.role;
+  return r === "admin" || r === "support";
+}
+function isAdminUser() {
+  return !!(currentUser && currentUser.role === "admin");
+}
+function roleBadgeText(u) {
+  if (!u) return "";
+  if (u.role === "admin") return t("roleAdmin");
+  if (u.role === "support") {
+    if (u.support_until) {
+      const days = Math.max(0, Math.ceil((new Date(u.support_until) - Date.now()) / 86400000));
+      return t("roleSupport") + " (" + fmtNum(days) + " " + t("daysLeft") + ")";
+    }
+    return t("roleSupport");
+  }
+  return "";
+}
+function updateAdminUI() {
+  const btn = $("adminBtn");
+  if (btn) btn.classList.toggle("hidden", !isStaffUser());
+  const badge = $("roleBadge");
+  if (badge) {
+    const txt = roleBadgeText(currentUser);
+    badge.textContent = txt ? "• " + txt : "";
+    badge.classList.toggle("hidden", !txt);
+  }
+  updateMaintBanner();
+}
+function updateMaintBanner() {
+  const b = $("maintBanner");
+  if (!b) return;
+  const on = !!(siteCfg && siteCfg.maintenance_mode) && isStaffUser();
+  b.classList.toggle("hidden", !on);
+  if (on) $("maintBannerMsg").textContent = siteCfg.maintenance_message || "";
+}
+function showMaintenanceScreen(msg) {
+  $("authScreen").classList.add("hidden");
+  $("appMain").classList.add("hidden");
+  $("adminScreen").classList.add("hidden");
+  $("logoutBtn").classList.add("hidden");
+  $("adminBtn").classList.add("hidden");
+  $("loggedInLine").classList.add("hidden");
+  $("maintScreenMsg").textContent = msg || "";
+  $("maintenanceScreen").classList.remove("hidden");
 }
 function afterLogin(data) {
   // Success path for Google sign-in.
@@ -182,6 +310,13 @@ function afterLogin(data) {
     localStorage.setItem("hn-token", data.token);
     localStorage.setItem("hn-username", data.user.username);
   } catch (e2) { /* ignore */ }
+  // Maintenance mode: staff go straight in, everyone else sees the
+  // maintenance screen even though they just signed in (the login
+  // endpoint itself is not blocked, but the app is).
+  if (siteCfg && siteCfg.maintenance_mode && !isStaffUser()) {
+    showMaintenanceScreen(siteCfg.maintenance_message || "");
+    return;
+  }
   showApp();
   postTokenToSW();
   resetForm();
@@ -373,8 +508,16 @@ async function initGoogle() {
   let cfg = {};
   try {
     const res = await fetch(apiBase() + "/api/config");
-    if (res.ok) cfg = await res.json();
+    if (res.ok) { cfg = await res.json(); siteCfg = cfg; }
   } catch (e) { /* offline — Google stays hidden */ }
+  // Maintenance screen already showing (decided by initAuth, which runs
+  // first) → do not touch the login screen at all.
+  if (!$("maintenanceScreen").classList.contains("hidden")) return;
+  // Maintenance mode and not staff → maintenance screen, not login.
+  if (cfg.maintenance_mode && !isStaffUser()) {
+    showMaintenanceScreen(cfg.maintenance_message || "");
+    return;
+  }
   if (!cfg.google_enabled || !cfg.google_client_id) {
     $("googleNote").classList.remove("hidden");
     return;
@@ -455,16 +598,42 @@ function logout() {
   summaryCache = null;
   reminderStatusCache = null;
   reminderHistoryCache = [];
+  $("adminScreen").classList.add("hidden");
+  $("maintBanner").classList.add("hidden");
   renderAll();
   postTokenToSW();
+  // Logged out during maintenance → the visitor sees the maintenance
+  // screen, not the login screen.
+  if (siteCfg && siteCfg.maintenance_mode) {
+    showMaintenanceScreen(siteCfg.maintenance_message || "");
+    return;
+  }
   showAuth();
 }
 async function initAuth() {
+  // Public config first: it tells us whether the site is in
+  // maintenance mode (and its message) before we decide which screen
+  // to show. During maintenance, non-staff get 503 from /api/auth/me.
+  const cfg = await fetchSiteConfig();
   const token = getToken();
-  if (!token) { showAuth(); updateNotifyUI(); return; }
+  if (!token) {
+    if (cfg.maintenance_mode) {
+      showMaintenanceScreen(cfg.maintenance_message || "");
+      return;
+    }
+    showAuth(); updateNotifyUI(); return;
+  }
   try {
     const res = await apiFetch("/api/auth/me");
-    if (!res.ok) { showAuth(); return; }
+    if (res.status === 503 || !res.ok) {
+      // 503 = maintenance mode for non-staff; any other failure while
+      // maintenance is on also means "visitor", not "log in".
+      if (cfg.maintenance_mode) {
+        showMaintenanceScreen(cfg.maintenance_message || "");
+        return;
+      }
+      showAuth(); return;
+    }
     const data = await res.json();
     currentUser = data.user;
     showApp();
@@ -520,6 +689,167 @@ function monthLabel(ym) {
   return `${months[lang][m - 1]} ${lang === "bn" ? toBn(y) : y}`;
 }
 
+/* ---------------- admin dashboard (v10) ---------------- */
+let adminUsersCache = [];
+function setAdminStatus(msg, isErr) {
+  const el = $("adminStatus");
+  el.textContent = msg || "";
+  el.classList.toggle("hidden", !msg);
+  el.className = "text-sm mt-2 break-words " + (isErr ? "text-red-600" : "text-emerald-700");
+}
+async function openAdmin() {
+  if (!isStaffUser()) return;
+  $("appMain").classList.add("hidden");
+  $("authScreen").classList.add("hidden");
+  $("maintenanceScreen").classList.add("hidden");
+  $("adminScreen").classList.remove("hidden");
+  window.scrollTo(0, 0);
+  await loadAdminDashboard();
+}
+function closeAdmin() {
+  $("adminScreen").classList.add("hidden");
+  showApp();
+}
+async function loadAdminDashboard() {
+  setAdminStatus("", false);
+  try {
+    const [sRes, setRes, uRes] = await Promise.all([
+      apiFetch("/api/admin/stats"),
+      apiFetch("/api/admin/settings"),
+      apiFetch("/api/admin/users"),
+    ]);
+    if (!sRes.ok || !setRes.ok || !uRes.ok) throw new Error("load failed");
+    renderAdminStats(await sRes.json());
+    renderAdminSettings(await setRes.json());
+    adminUsersCache = await uRes.json();
+    renderAdminUsers();
+  } catch (e) {
+    setAdminStatus(t("adminLoadErr"), true);
+  }
+}
+function renderAdminStats(s) {
+  const items = [
+    [t("statTotalUsers"), s.total_users],
+    [t("statNewUsers"), s.new_users_7d],
+    [t("statTotalEntries"), s.total_entries],
+    [t("statEntriesToday"), s.entries_today],
+    [t("statActiveUsers"), s.active_users_7d],
+  ];
+  $("adminStats").innerHTML = items.map(([label, val]) =>
+    `<div class="bg-gray-50 rounded-lg p-3 text-center min-w-0"><div class="text-[11px] sm:text-xs text-gray-500 truncate">${escapeHtml(label)}</div><div class="font-bold text-lg sm:text-xl break-words">${fmtNum(val)}</div></div>`).join("");
+}
+function renderAdminSettings(s) {
+  const isAdmin = isAdminUser();
+  $("maintToggle").checked = !!s.maintenance_mode;
+  $("maintMsg").value = s.maintenance_message || "";
+  $("maintToggle").disabled = !isAdmin;
+  $("maintMsg").disabled = !isAdmin;
+  $("maintSaveBtn").disabled = !isAdmin;
+  $("maintNote").classList.toggle("hidden", isAdmin);
+  $("adminRoleNote").classList.toggle("hidden", isAdmin);
+}
+async function saveAdminSettings() {
+  if (!isAdminUser()) return;
+  try {
+    const res = await apiFetch("/api/admin/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        maintenance_mode: $("maintToggle").checked,
+        maintenance_message: $("maintMsg").value,
+      }),
+    });
+    if (!res.ok) throw new Error("save failed");
+    const s = await res.json();
+    siteCfg = Object.assign({}, siteCfg, {
+      maintenance_mode: s.maintenance_mode,
+      maintenance_message: s.maintenance_message,
+    });
+    renderAdminSettings(s);
+    setAdminStatus(t("settingsSaved"), false);
+  } catch (e) {
+    setAdminStatus(t("adminLoadErr"), true);
+  }
+}
+function adminRoleBadge(u) {
+  if (u.role === "admin") return `<span class="text-xs font-bold bg-emerald-100 text-emerald-800 rounded-full px-2 py-0.5 shrink-0">${escapeHtml(t("roleAdmin"))}</span>`;
+  if (u.role === "support") {
+    let extra = "";
+    if (u.support_until) {
+      const days = Math.max(0, Math.ceil((new Date(u.support_until) - Date.now()) / 86400000));
+      extra = " (" + fmtNum(days) + " " + escapeHtml(t("daysLeft")) + ")";
+    }
+    return `<span class="text-xs font-bold bg-amber-100 text-amber-800 rounded-full px-2 py-0.5 shrink-0">${escapeHtml(t("roleSupport"))}${extra}</span>`;
+  }
+  return `<span class="text-xs font-bold bg-gray-100 text-gray-600 rounded-full px-2 py-0.5 shrink-0">${escapeHtml(t("roleUser"))}</span>`;
+}
+function renderAdminUsers() {
+  const q = ($("adminUserSearch").value || "").toLowerCase();
+  const rows = adminUsersCache.filter((u) =>
+    !q || (u.username || "").toLowerCase().includes(q) ||
+    (u.email || "").toLowerCase().includes(q));
+  $("adminNoUsers").classList.toggle("hidden", rows.length > 0);
+  const canChange = isAdminUser();
+  $("adminUserList").innerHTML = rows.map((u) => {
+    const self = !!(currentUser && u.id === currentUser.id);
+    const disabled = !canChange || self || u.is_main_admin;
+    const why = !canChange ? t("roleOnlyAdmin")
+      : self ? t("selfRowNote")
+      : u.is_main_admin ? t("mainAdminNote") : "";
+    const joined = u.created_at ? fmtDate(u.created_at.slice(0, 10)) : "—";
+    const lastActive = u.last_entry_at ? fmtDate(u.last_entry_at)
+      : (u.last_login_at ? fmtDate(u.last_login_at.slice(0, 10)) : t("neverActive"));
+    let cur = u.role;
+    if (u.role === "support" && u.support_until) {
+      const days = Math.max(1, Math.round((new Date(u.support_until) - Date.now()) / 86400000));
+      const near = [2, 3, 7, 15].reduce((a, b) =>
+        Math.abs(b - days) < Math.abs(a - days) ? b : a);
+      cur = "support:" + near;
+    }
+    const opts = [
+      ["user", t("roleUser")],
+      ["support:2", t("support2d")], ["support:3", t("support3d")],
+      ["support:7", t("support7d")], ["support:15", t("support15d")],
+      ["admin", t("makeAdmin")],
+    ];
+    const sel = `<select data-role-sel="${u.id}" ${disabled ? "disabled" : ""} class="border rounded-lg px-2 py-2 text-sm bg-white min-w-0 flex-1">` +
+      opts.map(([v, label]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${escapeHtml(label)}</option>`).join("") + `</select>`;
+    const btn = `<button type="button" data-role-apply="${u.id}" ${disabled ? "disabled" : ""} class="btn-primary rounded-lg px-3 py-2 text-sm font-bold shrink-0 disabled:opacity-50">${escapeHtml(t("roleChange"))}</button>`;
+    return `<div class="border rounded-lg p-3 space-y-2">
+      <div class="flex items-start justify-between gap-2 min-w-0">
+        <div class="min-w-0">
+          <div class="font-bold break-words">${escapeHtml(u.username)}</div>
+          <div class="text-xs text-gray-500 break-words">${escapeHtml(u.email || "")}</div>
+        </div>
+        ${adminRoleBadge(u)}
+      </div>
+      <div class="text-xs text-gray-500 break-words">${escapeHtml(t("joinedLabel"))}: ${joined} • ${escapeHtml(t("entriesLabel"))}: ${fmtNum(u.entries_count)} • ${escapeHtml(t("lastActiveLabel"))}: ${escapeHtml(lastActive)}</div>
+      <div class="flex gap-2">${sel}${btn}</div>
+      ${why ? `<p class="text-xs text-amber-700">${escapeHtml(why)}</p>` : ""}
+    </div>`;
+  }).join("");
+}
+async function applyRoleChange(userId, btn) {
+  const sel = document.querySelector(`[data-role-sel="${userId}"]`);
+  const val = sel ? sel.value : "user";
+  let role = val, days = null;
+  if (val.startsWith("support:")) { role = "support"; days = Number(val.split(":")[1]); }
+  btn.disabled = true;
+  try {
+    const res = await apiFetch(`/api/admin/users/${userId}/role`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(days ? { role, days } : { role }),
+    });
+    if (!res.ok) throw new Error("role change failed");
+    const updated = await res.json();
+    adminUsersCache = adminUsersCache.map((u) => u.id === userId ? updated : u);
+    renderAdminUsers();
+    setAdminStatus(t("roleChanged"), false);
+  } catch (e) {
+    setAdminStatus(t("adminLoadErr"), true);
+    btn.disabled = false;
+  }
+}
+
 /* ---------------- language ---------------- */
 function applyLang() {
   document.documentElement.lang = lang === "bn" ? "bn" : "en";
@@ -535,6 +865,8 @@ function applyLang() {
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
   renderAll();
+  updateAdminUI();
+  if (!$("adminScreen").classList.contains("hidden")) renderAdminUsers();
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
 $("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
@@ -1102,7 +1434,19 @@ if ("serviceWorker" in navigator) {
 $("logoutBtn").addEventListener("click", () => logout());
 $("logoutLink").addEventListener("click", () => logout());
 
+// Admin dashboard wiring.
+$("adminBtn").addEventListener("click", openAdmin);
+$("adminBackBtn").addEventListener("click", closeAdmin);
+$("maintSaveBtn").addEventListener("click", saveAdminSettings);
+$("adminUserSearch").addEventListener("input", renderAdminUsers);
+$("adminUserList").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-role-apply]");
+  if (!btn || btn.disabled) return;
+  applyRoleChange(Number(btn.dataset.roleApply), btn);
+});
+
 resetForm();
 applyLang();
-initAuth();
-initGoogle();
+// initAuth first: it decides the maintenance screen and sets
+// currentUser, so initGoogle can tell staff from visitors.
+initAuth().then(() => initGoogle());

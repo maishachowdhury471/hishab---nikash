@@ -126,4 +126,16 @@ def get_current_user(authorization: str = Header(default=""),
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="user not found")
+    # Maintenance mode (v10): staff can still work, everyone else gets
+    # 503 with the maintenance message. The login endpoint itself is
+    # NOT blocked (google_login does not use this dependency), and
+    # /api/config stays public so the frontend can show the maintenance
+    # screen instead of the login screen. (Lazy import: admin.py
+    # imports get_current_user from here, so a top-level import would
+    # be circular.)
+    from .admin import effective_role, maintenance_state
+    mode, msg = maintenance_state(db)
+    if mode and effective_role(user, db=db) not in ("admin", "support"):
+        raise HTTPException(status_code=503,
+                            detail=msg if msg else "maintenance mode")
     return user

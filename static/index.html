@@ -91,6 +91,7 @@
     <div class="flex items-center gap-2 shrink-0">
       <button id="themeToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full w-10 h-10 min-h-[40px] text-lg flex items-center justify-center" aria-label="ডার্ক মোড চালু করুন" title="ডার্ক মোড চালু করুন">🌙</button>
       <button id="langToggle" class="shrink-0 bg-white/15 hover:bg-white/25 rounded-full px-3 py-2 text-sm font-semibold min-h-[40px]">English</button>
+      <button id="adminBtn" class="hidden shrink-0 bg-white/15 hover:bg-white/25 rounded-full px-3 py-2 text-sm font-semibold min-h-[40px]" data-i18n="adminBtn">🛡️ অ্যাডমিন</button>
       <button id="logoutBtn" class="hidden shrink-0 bg-white/15 hover:bg-white/25 rounded-full w-10 h-10 min-h-[40px] text-lg flex items-center justify-center" aria-label="লগআউট" title="লগআউট">🚪</button>
     </div>
   </div>
@@ -121,7 +122,21 @@
   </section>
 </div>
 
+<!-- Maintenance mode (shown instead of login/app when the site is under
+     maintenance and the visitor is not staff) -->
+<div id="maintenanceScreen" class="hidden max-w-3xl mx-auto w-full px-3 sm:px-4 pt-6">
+  <section class="card p-5 sm:p-6 text-center">
+    <div class="text-4xl" aria-hidden="true">🛠️</div>
+    <h2 class="font-bold text-xl mt-3" data-i18n="maintScreenTitle">রক্ষণাবেক্ষণ চলছে</h2>
+    <p id="maintScreenMsg" class="text-sm text-gray-500 mt-2 break-words"></p>
+    <p class="text-sm text-gray-400 mt-4" data-i18n="tryLater">পরে আবার চেষ্টা করুন।</p>
+  </section>
+</div>
+
 <main id="appMain" class="max-w-3xl mx-auto w-full px-3 sm:px-4 pb-16">
+
+  <!-- Maintenance banner (staff only, while maintenance mode is on) -->
+  <div id="maintBanner" class="hidden mt-4 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-800 break-words"><span data-i18n="maintBanner">⚠️ রক্ষণাবেক্ষণ মোড চালু আছে — সাধারণ ব্যবহারকারীরা এখন অ্যাপ ব্যবহার করতে পারছেন না।</span> <span id="maintBannerMsg"></span></div>
 
   <!-- Month selector -->
   <section class="card mt-4 p-4 sm:p-5">
@@ -275,9 +290,45 @@
       <a href="https://nabinurislamroni.me" target="_blank" rel="noopener" class="font-bold text-emerald-700 hover:underline text-base sm:text-lg break-words">Nabinur Islam Roni</a>
     </p>
     <p class="text-xs text-gray-400 mt-2">AI Hisab Nikash • <span data-i18n="footer">আপনার হিসাব, আপনার হাতে</span></p>
-    <p id="loggedInLine" class="hidden text-xs text-gray-400 mt-1"><span data-i18n="loggedInAs">লগইন:</span> <span id="loggedInUser" class="font-semibold"></span> • <button id="logoutLink" type="button" class="underline" data-i18n="logout">লগআউট</button></p>
+    <p id="loggedInLine" class="hidden text-xs text-gray-400 mt-1"><span data-i18n="loggedInAs">লগইন:</span> <span id="loggedInUser" class="font-semibold"></span> <span id="roleBadge" class="hidden font-semibold"></span> • <button id="logoutLink" type="button" class="underline" data-i18n="logout">লগআউট</button></p>
   </footer>
 </main>
+
+<!-- Admin dashboard (staff only — admin + time-limited support) -->
+<div id="adminScreen" class="hidden max-w-3xl mx-auto w-full px-3 sm:px-4 pb-16">
+  <div class="mt-4 flex items-center gap-2">
+    <button id="adminBackBtn" type="button" class="shrink-0 bg-gray-200 hover:bg-gray-300 rounded-lg px-3 py-2.5 font-semibold text-sm">← <span data-i18n="adminBack">ফিরে যাও</span></button>
+    <h2 class="font-bold text-base sm:text-lg min-w-0" data-i18n="adminTitle">🛡️ অ্যাডমিন ড্যাশবোর্ড</h2>
+  </div>
+  <p id="adminStatus" class="hidden text-sm mt-2 break-words"></p>
+
+  <!-- Stats -->
+  <section class="card mt-4 p-4 sm:p-5">
+    <h3 class="font-bold text-base sm:text-lg" data-i18n="adminStatsTitle">পরিসংখ্যান</h3>
+    <div id="adminStats" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3"></div>
+  </section>
+
+  <!-- Maintenance mode -->
+  <section class="card mt-4 p-4 sm:p-5">
+    <h3 class="font-bold text-base sm:text-lg" data-i18n="maintTitle">রক্ষণাবেক্ষণ মোড</h3>
+    <label class="flex items-center gap-2 mt-3 text-sm sm:text-base font-semibold">
+      <input type="checkbox" id="maintToggle" class="w-5 h-5 shrink-0">
+      <span data-i18n="maintToggle">রক্ষণাবেক্ষণ মোড চালু</span>
+    </label>
+    <input id="maintMsg" type="text" class="w-full border rounded-lg px-3 py-2.5 mt-3" data-i18n-ph="maintMsgPh" placeholder="রক্ষণাবেক্ষণের বার্তা (ঐচ্ছিক)">
+    <p id="maintNote" class="hidden text-xs text-amber-700 mt-2" data-i18n="maintOnlyAdmin">শুধু মূল অ্যাডমিনই রক্ষণাবেক্ষণ বদলাতে পারেন।</p>
+    <button id="maintSaveBtn" type="button" class="btn-primary rounded-lg px-4 py-2.5 font-bold mt-3" data-i18n="maintSave">সংরক্ষণ করুন</button>
+  </section>
+
+  <!-- Users -->
+  <section class="card mt-4 p-4 sm:p-5">
+    <h3 class="font-bold text-base sm:text-lg" data-i18n="adminUsersTitle">ব্যবহারকারী</h3>
+    <input id="adminUserSearch" type="text" class="w-full border rounded-lg px-3 py-2.5 mt-3" data-i18n-ph="adminSearchPh" placeholder="নাম বা ইমেইল খুঁজুন…">
+    <p id="adminRoleNote" class="hidden text-xs text-amber-700 mt-2" data-i18n="roleOnlyAdmin">শুধু মূল অ্যাডমিনই রোল বদলাতে পারেন।</p>
+    <div id="adminUserList" class="mt-3 space-y-2"></div>
+    <p id="adminNoUsers" class="hidden text-center text-gray-400 py-4" data-i18n="noUsersFound">কোনো ব্যবহারকারী পাওয়া যায়নি।</p>
+  </section>
+</div>
 
 <!-- Delete confirmation modal (custom, responsive) -->
 <div id="deleteModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">

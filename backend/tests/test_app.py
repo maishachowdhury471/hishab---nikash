@@ -28,7 +28,8 @@ LAST_MONTH = (date(TODAY.year, TODAY.month, 1) - timedelta(days=1)).strftime("%Y
 AUTH = {}
 
 
-def _make_user(username, email=None, google_sub=None):
+def _make_user(username, email=None, google_sub=None, role="user",
+               support_until=None):
     """Create a user straight in the DB (login is Google-only, so tests
     cannot register through an endpoint) and return {user, token}."""
     from backend.app import auth as authmod
@@ -41,7 +42,8 @@ def _make_user(username, email=None, google_sub=None):
         username=username,
         email=email or f"{username}@example.com",
         google_sub=google_sub or f"google-{username}",
-        auth_provider="google", created_at=rem.now_dhaka())
+        auth_provider="google", created_at=rem.now_dhaka(),
+        role=role, support_until=support_until)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -654,3 +656,190 @@ def test_google_first_user_adopts_legacy_entries(monkeypatch):
                       headers=_h(d["token"])).json()
     assert len(rows) == 1
     assert rows[0]["note"] == "legacy" and rows[0]["amount"] == 700
+
+
+# ---------------------------------------------------------------- admin (v10)
+ADMIN_EMAIL = "maishachowdhury471@gmail.com"
+
+
+def _admin():
+    return _make_user("boss", email=ADMIN_EMAIL, role="admin")
+
+
+def _support(days=7):
+    from backend.app import reminders as rem
+    return _make_user("helper", role="support",
+                      support_until=rem.now_dhaka() + timedelta(days=days))
+
+
+def test_admin_email_becomes_admin_on_google_login(monkeypatch):
+    # A brand-new Google sign-in with Maisha's email is admin at once.
+    d = _google_login(monkeypatch, sub="google-admin-1",
+                      email=ADMIN_EMAIL).json()
+    assert d["user"]["role"] == "admin"
+    assert d["user"]["support_until"] is None
+    # An existing account with that email is promoted on its next login.
+    setup_function()
+    old = _make_user("oldboss", email=ADMIN_EMAIL)
+    assert client.get("/api/auth/me", headers=_h(old["token"])).json()["user"]["role"] == "user"
+    d2 = _google_login(monkeypatch, sub="google-admin-2",
+                       email=ADMIN_EMAIL).json()
+    assert d2["user"]["id"] == old["user"]["id"]
+    assert d2["user"]["role"] == "admin"
+
+
+def test_admin_endpoints_forbidden_for_normal_user():
+    assert client.get("/api/admin/stats", headers=_h()).status_code == 403
+    assert client.get("/api/admin/users", headers=_h()).status_code == 403
+    assert client.get("/api/admin/settings", headers=_h()).status_code == 403
+    assert client.post("/api/admin/users/1/role", json={"role": "support", "days": 7},
+                       headers=_h()).status_code == 403
+    assert client.post("/api/admin/settings",
+                       json={"maintenance_mode": True}, headers=_h()).status_code == 403
+
+
+def test_admin_endpoints_require_login():
+    assert client.get("/api/admin/stats").status_code == 401
+    assert client.get("/api/admin/users").status_code == 401
+
+
+def test_support_can_view_but_not_change():
+    s = _support()
+    assert client.get("/api/admin/stats", headers=_h(s["token"])).status_code == 200
+    assert client.get("/api/admin/users", headers=_h(s["token"])).status_code == 200
+    assert client.get("/api/admin/settings", headers=_h(s["token"])).status_code == 200
+    assert client.post("/api/admin/users/1/role", json={"role": "support", "days": 7},
+                       headers=_h(s["token"])).status_code == 403
+    assert client.post("/api/admin/settings",
+                       json={"maintenance_mode": True},
+                       headers=_h(s["token"])).status_code == 403
+
+
+def test_admin_grants_support_for_7_days_and_revokes():
+    from backend.app import reminders as rem
+    admin = _admin()
+    target = _make_user("newbie")
+    r = client.post(f"/api/admin/users/{target['user']['id']}/role",
+                    json={"role": "support", "days": 7},
+                    headers=_h(admin["token"]))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["role"] == "support" and d["raw_role"] == "support"
+    until = d["support_until"]
+    assert until is not None
+    delta = (rem.now_dhaka() + timedelta(days=7)).isoformat()
+    # support_until is ~7 days out (within a few minutes of now+7d).
+    assert until[:13] == delta[:13]
+    # The new support user can now view the dashboard.
+    assert client.get("/api/admin/stats",
+                      headers=_h(_make_user("t2")["token"])).status_code == 403
+    # Revoke back to a normal user.
+    r = client.post(f"/api/admin/users/{target['user']['id']}/role",
+                    json={"role": "user"}, headers=_h(admin["token"]))
+    assert r.status_code == 200
+    assert r.json()["role"] == "user"
+    assert r.json()["support_until"] is None
+
+
+def test_admin_cannot_change_own_role():
+    admin = _admin()
+    r = client.post(f"/api/admin/users/{admin['user']['id']}/role",
+                    json={"role": "user"}, headers=_h(admin["token"]))
+    assert r.status_code == 403
+
+
+def test_admin_cannot_change_main_admin_role():
+    # A second (granted) admin still cannot touch Maisha's account.
+    other = _make_user("second", role="admin")
+    main = _make_user("mainadmin", email=ADMIN_EMAIL, role="admin")
+    r = client.post(f"/api/admin/users/{main['user']['id']}/role",
+                    json={"role": "user"}, headers=_h(other["token"]))
+    assert r.status_code == 403
+
+
+def test_expired_support_is_plain_user():
+    from backend.app import reminders as rem
+    old = _make_user("expired", role="support",
+                     support_until=rem.now_dhaka() - timedelta(days=1))
+    assert client.get("/api/admin/stats", headers=_h(old["token"])).status_code == 403
+    # /api/auth/me reports the effective role — and the stale support
+    # role is downgraded in the DB when noticed.
+    me = client.get("/api/auth/me", headers=_h(old["token"])).json()
+    assert me["user"]["role"] == "user"
+
+
+def test_maintenance_toggle_and_enforcement():
+    admin = _admin()
+    user = AUTH  # normal user "maisha"
+    r = client.post("/api/admin/settings",
+                    json={"maintenance_mode": True,
+                          "maintenance_message": "Test maintenance"},
+                    headers=_h(admin["token"]))
+    assert r.status_code == 200, r.text
+    assert r.json() == {"maintenance_mode": True,
+                        "maintenance_message": "Test maintenance"}
+    cfg = client.get("/api/config").json()
+    assert cfg["maintenance_mode"] is True
+    assert cfg["maintenance_message"] == "Test maintenance"
+    # Normal users are locked out of data endpoints with 503...
+    assert client.get(f"/api/entries?month={THIS_MONTH}",
+                      headers=_h(user["token"])).status_code == 503
+    # ...but staff (admin and support) keep working.
+    assert client.get(f"/api/entries?month={THIS_MONTH}",
+                      headers=_h(admin["token"])).status_code == 200
+    s = _support()
+    assert client.get(f"/api/entries?month={THIS_MONTH}",
+                      headers=_h(s["token"])).status_code == 200
+    # Turn it off again — normal users are back in.
+    r = client.post("/api/admin/settings",
+                    json={"maintenance_mode": False, "maintenance_message": ""},
+                    headers=_h(admin["token"]))
+    assert r.json()["maintenance_mode"] is False
+    assert client.get("/api/config").json()["maintenance_mode"] is False
+    assert client.get(f"/api/entries?month={THIS_MONTH}",
+                      headers=_h(user["token"])).status_code == 200
+
+
+def test_admin_users_list_includes_entries_count():
+    admin = _admin()
+    u = _make_user("busy")
+    _add({"type": "expense", "amount": 100, "category": "bazar",
+          "note": "", "date": TODAY.isoformat()}, headers=_h(u["token"]))
+    _add({"type": "income", "amount": 500, "category": "beton",
+          "note": "", "date": TODAY.isoformat()}, headers=_h(u["token"]))
+    rows = client.get("/api/admin/users", headers=_h(admin["token"])).json()
+    row = next(r for r in rows if r["id"] == u["user"]["id"])
+    assert row["entries_count"] == 2
+    assert row["last_entry_at"] == TODAY.isoformat()
+    assert row["role"] == "user" and row["raw_role"] == "user"
+    stats = client.get("/api/admin/stats", headers=_h(admin["token"])).json()
+    assert stats["total_users"] >= 3 and stats["total_entries"] == 2
+    assert stats["entries_today"] == 2 and stats["active_users_7d"] == 1
+
+
+def test_admin_role_change_validates_days_and_role():
+    admin = _admin()
+    target = _make_user("target")
+    url = f"/api/admin/users/{target['user']['id']}/role"
+    h = _h(admin["token"])
+    assert client.post(url, json={"role": "support"},
+                       headers=h).status_code == 422  # days required
+    assert client.post(url, json={"role": "support", "days": 5},
+                       headers=h).status_code == 422  # only 2/3/7/15
+    assert client.post(url, json={"role": "superadmin"},
+                       headers=h).status_code == 422
+    assert client.post("/api/admin/users/99999/role",
+                       json={"role": "user"}, headers=h).status_code == 404
+
+
+def test_admin_can_grant_permanent_admin():
+    admin = _admin()
+    target = _make_user("promote")
+    r = client.post(f"/api/admin/users/{target['user']['id']}/role",
+                    json={"role": "admin"}, headers=_h(admin["token"]))
+    assert r.status_code == 200
+    assert r.json()["role"] == "admin"
+    assert r.json()["support_until"] is None
+    # The newly promoted admin can use the dashboard.
+    assert client.get("/api/admin/stats",
+                      headers=_h(target["token"])).status_code == 200

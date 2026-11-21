@@ -27,8 +27,9 @@ import os
 import re
 from calendar import monthrange
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,9 +38,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
+from . import admin as adminmod
 from . import auth as authmod
 from .advice import generate_advice
-from .database import Base, engine, ensure_schema, get_db
+from .database import Base, SessionLocal, engine, ensure_schema, get_db
 from .models import Entry, PushSubscription, ReminderLog, User
 from .parser import parse_text
 from . import reminders as rem
@@ -54,6 +56,13 @@ async def _lifespan(_app):
     # logins existed) need the new user_id columns added — create_all
     # alone never adds a column to an existing table.
     ensure_schema()
+    # The permanent admin (Maisha) is admin from the moment her account
+    # exists — promote her here too, not only on her next login.
+    db = SessionLocal()
+    try:
+        adminmod.seed_admin(db)
+    finally:
+        db.close()
     yield
 
 
@@ -169,6 +178,9 @@ def user_out(u: User) -> dict:
     return {"id": u.id, "username": u.username,
             "email": u.email,
             "provider": u.auth_provider or "google",
+            "role": adminmod.effective_role(u),
+            "support_until": (u.support_until.isoformat()
+                              if u.support_until else None),
             "created_at": u.created_at.isoformat() if u.created_at else None}
 
 
@@ -243,6 +255,13 @@ def google_login(payload: GoogleIn, db: Session = Depends(get_db)):
         user.google_sub = sub
         db.commit()
         db.refresh(user)
+    # The permanent admin (Maisha) is always admin, new or existing.
+    if email == adminmod.ADMIN_EMAIL:
+        user.role = "admin"
+        user.support_until = None
+    user.last_login_at = rem.now_dhaka()
+    db.commit()
+    db.refresh(user)
     return {"user": user_out(user), "token": authmod.create_token(user),
             "is_new": is_new}
 
@@ -385,12 +404,15 @@ class ReminderShownIn(BaseModel):
 
 
 @app.get("/api/config")
-def config():
+def config(db: Session = Depends(get_db)):
+    mode, msg = adminmod.maintenance_state(db)
     return {"vapid_public_key": rem.vapid_public_key(),
             "push_enabled": rem.push_enabled(),
             "reminder_hour": rem.REMINDER_HOUR,
             "google_client_id": authmod.google_client_id(),
-            "google_enabled": authmod.google_enabled()}
+            "google_enabled": authmod.google_enabled(),
+            "maintenance_mode": mode,
+            "maintenance_message": msg}
 
 
 @app.post("/api/push/subscribe", status_code=201)
@@ -551,6 +573,124 @@ def reminder_trigger(x_reminder_secret: str = Header(default=""),
             "users_checked": len(users),
             "last_entry_date": last_entry_date,
             "missed_dates": missed_dates}
+
+
+# ---------------------------------------------------------------- admin (v10)
+def admin_user_out(db: Session, u: User) -> dict:
+    """One user row for the admin dashboard, with their usage stats."""
+    entries = db.query(Entry).filter(Entry.user_id == u.id)
+    last = entries.order_by(Entry.date.desc()).first()
+    return {
+        "id": u.id, "username": u.username, "email": u.email,
+        "role": adminmod.effective_role(u),
+        "raw_role": u.role or "user",
+        "is_main_admin": (u.email or "").lower() == adminmod.ADMIN_EMAIL,
+        "support_until": (u.support_until.isoformat()
+                          if u.support_until else None),
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+        "entries_count": entries.count(),
+        "last_entry_at": last.date.isoformat() if last else None,
+        "last_login_at": (u.last_login_at.isoformat()
+                          if u.last_login_at else None),
+    }
+
+
+@app.get("/api/admin/stats")
+def admin_stats(db: Session = Depends(get_db),
+                user: User = Depends(adminmod.require_staff)):
+    """Dashboard numbers: how many users, how active they are, and
+    whether maintenance mode is on."""
+    now = rem.now_dhaka()
+    today = now.date()
+    week_ago = today - timedelta(days=7)
+    seven_days_ago = now - timedelta(days=7)
+    mode, msg = adminmod.maintenance_state(db)
+    return {
+        "total_users": db.query(User).count(),
+        "new_users_7d": db.query(User).filter(
+            User.created_at >= seven_days_ago).count(),
+        "total_entries": db.query(Entry).count(),
+        "entries_today": db.query(Entry).filter(
+            Entry.date == today).count(),
+        "active_users_7d": db.query(Entry.user_id).filter(
+            Entry.date >= week_ago,
+            Entry.user_id.is_not(None)).distinct().count(),
+        "maintenance_mode": mode,
+        "maintenance_message": msg,
+    }
+
+
+@app.get("/api/admin/users")
+def admin_users(db: Session = Depends(get_db),
+                user: User = Depends(adminmod.require_staff)):
+    rows = (db.query(User).order_by(User.created_at.desc())
+            .limit(500).all())
+    return [admin_user_out(db, u) for u in rows]
+
+
+class RoleChangeIn(BaseModel):
+    role: str = ""
+    days: Optional[int] = None
+
+
+@app.post("/api/admin/users/{user_id}/role")
+def admin_set_role(user_id: int, payload: RoleChangeIn,
+                   db: Session = Depends(get_db),
+                   user: User = Depends(adminmod.require_admin)):
+    """Change a user's role. Only the permanent admin can do this.
+    Support is time-limited: days must be 2, 3, 7 or 15."""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+    if target.id == user.id:
+        raise HTTPException(status_code=403,
+                            detail="cannot change your own role")
+    if (target.email or "").lower() == adminmod.ADMIN_EMAIL:
+        raise HTTPException(status_code=403,
+                            detail="cannot change the main admin's role")
+    role = (payload.role or "").lower()
+    if role not in ("user", "support", "admin"):
+        raise HTTPException(status_code=422,
+                            detail="role must be user, support or admin")
+    if role == "support":
+        if payload.days not in (2, 3, 7, 15):
+            raise HTTPException(
+                status_code=422,
+                detail="support needs days of 2, 3, 7 or 15")
+        target.support_until = (rem.now_dhaka()
+                                + timedelta(days=payload.days))
+    else:
+        target.support_until = None
+    target.role = role
+    db.commit()
+    db.refresh(target)
+    return admin_user_out(db, target)
+
+
+@app.get("/api/admin/settings")
+def admin_get_settings(db: Session = Depends(get_db),
+                       user: User = Depends(adminmod.require_staff)):
+    mode, msg = adminmod.maintenance_state(db)
+    return {"maintenance_mode": mode, "maintenance_message": msg}
+
+
+class SettingsIn(BaseModel):
+    maintenance_mode: bool = False
+    maintenance_message: str = ""
+
+
+@app.post("/api/admin/settings")
+def admin_set_settings(payload: SettingsIn,
+                       db: Session = Depends(get_db),
+                       user: User = Depends(adminmod.require_admin)):
+    """Turn maintenance mode on/off (and its message). Only the
+    permanent admin can do this — support staff can only view it."""
+    adminmod.set_setting(db, "maintenance_mode",
+                         "1" if payload.maintenance_mode else "0")
+    adminmod.set_setting(db, "maintenance_message",
+                         (payload.maintenance_message or "").strip())
+    mode, msg = adminmod.maintenance_state(db)
+    return {"maintenance_mode": mode, "maintenance_message": msg}
 
 
 # ---------------------------------------------------------------- frontend

@@ -22,6 +22,22 @@ class User(Base):
     google_sub = Column(String, nullable=True, unique=True, index=True)
     auth_provider = Column(String, nullable=False, default="google")
     created_at = Column(DateTime, nullable=False)
+    # Admin roles (v10): "user" (normal), "support" (time-limited
+    # elevated role, expires at support_until), "admin" (permanent).
+    role = Column(String, nullable=False, default="user")
+    support_until = Column(DateTime, nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
+
+
+class SiteSetting(Base):
+    """Key/value site settings (v10) — e.g. maintenance mode.
+
+    Keys: "maintenance_mode" ("0"/"1"), "maintenance_message" (text,
+    may be empty). Only the permanent admin can change them."""
+    __tablename__ = "site_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(String, nullable=False, default="")
 
 
 class Entry(Base):
