@@ -69,7 +69,7 @@ const I18N = {
     authGoogleErr: "Google লগইন করা যায়নি, আবার চেষ্টা করুন।",
     authGoogleNative: "Google দিয়ে লগইন",
     logout: "লগআউট", loggedInAs: "লগইন:",
-    adminBtn: "🛡️ অ্যাডমিন", adminTitle: "🛡️ অ্যাডমিন ড্যাশবোর্ড",
+    adminBtnLabel: "অ্যাডমিন", adminTitle: "🛡️ অ্যাডমিন ড্যাশবোর্ড",
     adminBack: "ফিরে যাও", adminStatsTitle: "পরিসংখ্যান",
     statTotalUsers: "মোট ইউজার", statNewUsers: "নতুন (৭ দিন)",
     statTotalEntries: "মোট এন্ট্রি", statEntriesToday: "আজকের এন্ট্রি",
@@ -150,7 +150,7 @@ const I18N = {
     authGoogleErr: "Google sign-in failed, please try again.",
     authGoogleNative: "Sign in with Google",
     logout: "Log out", loggedInAs: "Logged in:",
-    adminBtn: "🛡️ Admin", adminTitle: "🛡️ Admin Dashboard",
+    adminBtnLabel: "Admin", adminTitle: "🛡️ Admin Dashboard",
     adminBack: "Back", adminStatsTitle: "Statistics",
     statTotalUsers: "Total users", statNewUsers: "New (7 days)",
     statTotalEntries: "Total entries", statEntriesToday: "Today's entries",
@@ -855,12 +855,14 @@ function applyLang() {
   document.documentElement.lang = lang === "bn" ? "bn" : "en";
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
-  $("langToggle").textContent = lang === "bn" ? "English" : "বাংলা";
+  $("langToggle").textContent = lang === "bn" ? "EN" : "বাং";
   // Icon-only AI buttons: keep their accessible labels in sync with language.
   $("aiParseBtn").setAttribute("aria-label", t("parseBtnLabel"));
   $("aiParseBtn").setAttribute("title", t("parseBtnLabel"));
   $("micBtn").setAttribute("aria-label", t("micLabel"));
   $("micBtn").setAttribute("title", t("micLabel"));
+  $("adminBtn").setAttribute("aria-label", t("adminBtnLabel"));
+  $("adminBtn").setAttribute("title", t("adminBtnLabel"));
   applyTheme();
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
