@@ -51,6 +51,7 @@ const I18N = {
     notifyOff: "রিমাইন্ডার বন্ধ আছে।",
     notifyNeedPermission: "নোটিফিকেশনের অনুমতি দিলে তবেই রিমাইন্ডার আসবে — ব্রাউজারের অনুমতির বাক্সে Allow চাপুন।",
     notifyDenied: "নোটিফিকেশনের অনুমতি বন্ধ করা আছে — ব্রাউজারের সাইট সেটিংস থেকে অনুমতি দিলে রিমাইন্ডার চালু হবে।",
+    notifyDeniedNative: "নোটিফিকেশনের অনুমতি বন্ধ আছে — ফোনের Settings → Apps → AI হিসাব নিকাশ → Notifications থেকে চালু করলে রিমাইন্ডার আসবে।",
     notifyUnsupported: "এই ব্রাউজারে পুশ নোটিফিকেশন চলে না — তবে অ্যাপ খুললেই ছুটে যাওয়া দিনের রিমাইন্ডার দেখতে পাবেন।",
     notifyNoServerPush: "সার্ভারের পুশ এখনো সেট হয়নি — তবু অ্যাপ খোলা থাকলে বা ইন্টারনেট ফিরলে রিমাইন্ডার দেখাবে।",
     missedTitle: "⚠️ আজকের হিসাব এখনো লেখা হয়নি",
@@ -132,6 +133,7 @@ const I18N = {
     notifyOff: "Reminders are off.",
     notifyNeedPermission: "Reminders need notification permission — press Allow in the browser prompt.",
     notifyDenied: "Notification permission is blocked — allow it in the browser's site settings to turn reminders on.",
+    notifyDeniedNative: "Notification permission is off — turn it on in your phone's Settings → Apps → AI Hisab Nikash → Notifications and reminders will come.",
     notifyUnsupported: "Push notifications don't work in this browser — but opening the app will still show you any missed-day reminder.",
     notifyNoServerPush: "Server push is not set up yet — reminders will still show when you open the app or when the internet returns.",
     missedTitle: "⚠️ Today's accounts are not written yet",
@@ -324,6 +326,7 @@ function afterLogin(data) {
   updateNotifyUI();
   checkReminders();
   syncPushSubscription();
+  autoPromptReminders();
 }
 
 /* ---------------- Sign in with Google ----------------
@@ -642,6 +645,7 @@ async function initAuth() {
     updateNotifyUI();
     checkReminders();
     syncPushSubscription();
+    autoPromptReminders();
   } catch (e) { showAuth(); }
 }
 async function postTokenToSW() {
@@ -935,6 +939,8 @@ $("entryForm").addEventListener("submit", async (e) => {
   resetForm();
   loadAll();
   checkReminders();
+  // APK: today's accounts are now written — cancel today's local reminder.
+  if (payload.date === localTodayStr()) cancelLocalReminder();
 });
 
 function startEdit(entry) {
@@ -1181,6 +1187,7 @@ async function loadAll() {
       if (!stored || maxDate > stored) localStorage.setItem("hn-last-entry-date", maxDate);
     } catch (e) { /* ignore */ }
   }
+  scheduleLocalReminder(); // APK: (re)create the daily 09:00 local reminder
   renderAll();
 }
 
@@ -1343,12 +1350,145 @@ async function checkReminders() {
   } catch (e) { /* offline — local check already ran */ }
 }
 
+/* ---------------- native notifications: auto-prompt + APK local reminder (v10.2) ------------
+   Maisha's rule: when the app opens, the phone itself must ask to allow
+   notification reminders; once allowed, reminders stay ON until the app /
+   APK is uninstalled. Two surfaces, two mechanisms:
+   - PWA (Chrome): Web Push — Notification.requestPermission() + the
+     existing push subscription.
+   - APK (Capacitor WebView): Web Push can NEVER work here — Android's
+     WebView has no PushManager, so no subscription can exist. Instead we
+     schedule a native LOCAL notification every day at 09:00 via the
+     @capacitor/local-notifications plugin (installed in the APK build;
+     absent here → everything below degrades silently).
+   NEVER call window.Capacitor.registerPlugin — it does not exist in the
+   injected Capacitor 7 runtime (v9.5 root cause). Plugins are reached
+   only through window.Capacitor.Plugins.<Name>, guarded for undefined. */
+const LOCAL_REMINDER_ID = 1001;
+function localNotificationsPlugin() {
+  try {
+    const C = window.Capacitor;
+    if (!C || !C.Plugins) return null;
+    return C.Plugins.LocalNotifications || null;
+  } catch (e) { return null; }
+}
+function remindersOn() {
+  try { return localStorage.getItem("hn-reminders-on") === "1"; } catch (e) { return false; }
+}
+function markRemindersAsked() {
+  try { localStorage.setItem("hn-reminders-asked", "1"); } catch (e) { /* ignore */ }
+}
+function localTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function hasEntryToday() {
+  const today = localTodayStr();
+  if (entriesCache.some((e) => e.date === today)) return true;
+  try { return localStorage.getItem("hn-last-entry-date") === today; } catch (e) { return false; }
+}
+async function scheduleLocalReminder() {
+  // APK only. Re-runs on every app open with the same fixed id, so
+  // re-scheduling replaces the old one and the 09:00 daily reminder
+  // survives reboots and stays until uninstall.
+  if (!isCapacitor() || !remindersOn()) return;
+  const LN = localNotificationsPlugin();
+  if (!LN) return;
+  try {
+    if (hasEntryToday()) {
+      // Today's accounts are already written — no notification today.
+      await LN.cancel({ notifications: [{ id: LOCAL_REMINDER_ID }] });
+      return;
+    }
+    await LN.schedule({ notifications: [{
+      id: LOCAL_REMINDER_ID,
+      title: "AI হিসাব নিকাশ",
+      body: I18N.bn.reminderMsg,
+      schedule: { on: { hour: 9, minute: 0 }, repeats: true },
+    }] });
+  } catch (e) { /* plugin not ready — next app open retries */ }
+}
+async function cancelLocalReminder() {
+  if (!isCapacitor()) return;
+  const LN = localNotificationsPlugin();
+  if (!LN) return;
+  try { await LN.cancel({ notifications: [{ id: LOCAL_REMINDER_ID }] }); } catch (e) { /* ignore */ }
+}
+async function autoPromptReminders() {
+  // Ask once per install, the first time a logged-in user opens the app
+  // with reminders still off. Shows the phone's own native allow/block
+  // dialog — never a custom modal. After a real decision (allow or deny)
+  // the "asked" flag is set and this never auto-prompts again; dismissing
+  // the dialog without deciding leaves the flag unset so it can ask again.
+  if (!currentUser) return;
+  try {
+    if (localStorage.getItem("hn-reminders-on") === "1") return;
+    if (localStorage.getItem("hn-reminders-asked") === "1") return;
+  } catch (e) { return; }
+  if (isCapacitor()) {
+    const LN = localNotificationsPlugin();
+    if (!LN) return; // older APK without the plugin — nothing to ask
+    try {
+      const st = await LN.checkPermissions();
+      const disp = st && st.display;
+      if (disp === "granted") {
+        try { localStorage.setItem("hn-reminders-on", "1"); } catch (e) { /* ignore */ }
+        markRemindersAsked();
+        scheduleLocalReminder();
+        updateNotifyUI();
+        return;
+      }
+      if (disp === "denied") { markRemindersAsked(); return; }
+      if (disp !== "prompt") return; // unknown state — retry next open
+      const res = await LN.requestPermissions();
+      if (res && res.display === "granted") {
+        try { localStorage.setItem("hn-reminders-on", "1"); } catch (e) { /* ignore */ }
+        markRemindersAsked();
+        scheduleLocalReminder();
+        updateNotifyUI();
+      } else if (res && res.display === "denied") {
+        markRemindersAsked();
+      }
+      // "prompt" again = dismissed without deciding — ask again next open.
+    } catch (e) { /* plugin not ready — retry on next open */ }
+    return;
+  }
+  if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (Notification.permission !== "default") { markRemindersAsked(); return; }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      await enableReminders();
+      markRemindersAsked();
+    } else if (perm === "denied") {
+      markRemindersAsked();
+    }
+  } catch (e) { /* will retry on next open */ }
+}
+
 function updateNotifyUI() {
   const enableBtn = $("notifyEnableBtn"), disableBtn = $("notifyDisableBtn");
   const statusEl = $("notifyStatus");
   const supported = ("Notification" in window) && ("serviceWorker" in navigator) && ("PushManager" in window);
   let on = false;
   try { on = localStorage.getItem("hn-reminders-on") === "1"; } catch (e) { /* ignore */ }
+  if (isCapacitor()) {
+    // APK: Web Push can never work in the WebView (no PushManager) — the
+    // reminder is a native local notification instead (v10.2).
+    if (!localNotificationsPlugin()) {
+      statusEl.textContent = t("notifyUnsupported");
+      enableBtn.classList.add("hidden"); disableBtn.classList.add("hidden");
+      return;
+    }
+    if (on) {
+      statusEl.textContent = t("notifyOn");
+      enableBtn.classList.add("hidden"); disableBtn.classList.remove("hidden");
+    } else {
+      statusEl.textContent = t("notifyOff");
+      enableBtn.classList.remove("hidden"); disableBtn.classList.add("hidden");
+    }
+    return;
+  }
   if (!supported) {
     statusEl.textContent = t("notifyUnsupported");
     enableBtn.classList.add("hidden"); disableBtn.classList.add("hidden");
@@ -1370,9 +1510,30 @@ function updateNotifyUI() {
 
 async function enableReminders() {
   const statusEl = $("notifyStatus");
+  if (isCapacitor()) {
+    // APK: ask the native Android permission, then schedule the daily
+    // 09:00 local notification (v10.2). No Web Push here — no PushManager.
+    const LN = localNotificationsPlugin();
+    if (!LN) { statusEl.textContent = t("notifyUnsupported"); return; }
+    let res = null;
+    try { res = await LN.requestPermissions(); } catch (e) { /* ignore */ }
+    if (!res || res.display !== "granted") {
+      if (res && res.display === "denied") markRemindersAsked();
+      statusEl.textContent = t("notifyDeniedNative");
+      $("notifyEnableBtn").classList.remove("hidden");
+      $("notifyDisableBtn").classList.add("hidden");
+      return;
+    }
+    try { localStorage.setItem("hn-reminders-on", "1"); } catch (e) { /* ignore */ }
+    markRemindersAsked();
+    await scheduleLocalReminder();
+    updateNotifyUI();
+    return;
+  }
   if (!("Notification" in window)) { statusEl.textContent = t("notifyUnsupported"); return; }
   let perm = Notification.permission;
   if (perm === "default") perm = await Notification.requestPermission();
+  if (perm === "denied") markRemindersAsked();
   if (perm !== "granted") { statusEl.textContent = t("notifyNeedPermission"); updateNotifyUI(); return; }
   try {
     const cfg = await (await apiFetch("/api/config")).json();
@@ -1400,6 +1561,11 @@ async function enableReminders() {
   updateNotifyUI();
 }
 async function disableReminders() {
+  // APK first: cancel the daily local notification (guarded no-op in the
+  // PWA). The "asked" flag is NOT cleared — the user decided; they can
+  // re-enable from the card any time.
+  await cancelLocalReminder();
+  try { localStorage.setItem("hn-reminders-on", "0"); } catch (e) { /* ignore */ }
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
@@ -1411,7 +1577,6 @@ async function disableReminders() {
       await sub.unsubscribe();
     }
   } catch (e) { /* ignore */ }
-  try { localStorage.removeItem("hn-reminders-on"); } catch (e) { /* ignore */ }
   updateNotifyUI();
 }
 $("notifyEnableBtn").addEventListener("click", enableReminders);
