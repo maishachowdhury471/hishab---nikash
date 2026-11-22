@@ -1,4 +1,4 @@
-"""Google-only auth for AI Hisab Nikash.
+"""Google-only auth for Hisab Nikash.
 
 - There is NO username/password login: users sign in with Google only.
 - The server verifies every Google ID token with google-auth (signature,

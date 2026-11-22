@@ -1,4 +1,4 @@
-"""Tests for AI Hisab Nikash. Uses a temp SQLite DB — never touches the
+"""Tests for Hisab Nikash. Uses a temp SQLite DB — never touches the
 real dev DB. Run from ~/workspace/hisab-nikash/backend with pytest."""
 import os
 import sys

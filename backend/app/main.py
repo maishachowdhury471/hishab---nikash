@@ -1,4 +1,4 @@
-"""AI Hisab Nikash — FastAPI backend + static frontend (single service).
+"""Hisab Nikash — FastAPI backend + static frontend (single service).
 
 Accounts: every person signs in with Google only, and ALL
 data (entries, summary, advice, comparison, reminders, push subscriptions)
@@ -66,7 +66,7 @@ async def _lifespan(_app):
     yield
 
 
-app = FastAPI(title="AI Hisab Nikash", lifespan=_lifespan)
+app = FastAPI(title="Hisab Nikash", lifespan=_lifespan)
 
 # The Capacitor APK (v1.2+) bundles the frontend locally, so its origin is
 # https://localhost (or capacitor://localhost) and its API calls are

@@ -1,4 +1,4 @@
-/* AI Hisab Nikash service worker — caches the app shell so the UI loads
+/* Hisab Nikash service worker — caches the app shell so the UI loads
    offline where possible. Data lives on the server, so saving new entries
    still needs network; cached UI viewing works offline.
    Also handles Web Push reminders ('push'), missed-reminder catch-up when
@@ -61,7 +61,7 @@ function bnDateTime(iso) {
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { /* ignore */ }
-  const title = data.title || "AI হিসাব নিকাশ — আজকের হিসাব";
+  const title = data.title || "হিসাব নিকাশ — আজকের হিসাব";
   const body = data.body || "আজকের হিসাব কি লিখেছো? এখনই অ্যাপে ঢুকে আজকের খরচ বা আয় লিখে ফেলো।";
   event.waitUntil(
     self.registration.showNotification(title, {
@@ -102,7 +102,7 @@ self.addEventListener("sync", (event) => {
         const st = await res.json();
         if (!st.due || !st.due_at) return;
         const body = "আজকের হিসাব কি লিখেছো? আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে — এখনই অ্যাপে ঢুকে আজকের খরচ বা আয় লিখে ফেলো।\nআসার কথা ছিল: " + bnDateTime(st.due_at);
-        return self.registration.showNotification("AI হিসাব নিকাশ — আজকের হিসাব", {
+        return self.registration.showNotification("হিসাব নিকাশ — আজকের হিসাব", {
           body,
           icon: "/static/icon-192.png",
           badge: "/static/icon.svg",
@@ -124,7 +124,7 @@ self.addEventListener("message", (event) => {
   }
   if (data.type !== "show-reminder") return;
   event.waitUntil(
-    self.registration.showNotification(data.title || "AI হিসাব নিকাশ", {
+    self.registration.showNotification(data.title || "হিসাব নিকাশ", {
       body: data.body || "",
       icon: "/static/icon-192.png",
       badge: "/static/icon.svg",

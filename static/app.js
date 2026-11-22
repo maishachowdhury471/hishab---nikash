@@ -1,4 +1,4 @@
-/* AI Hisab Nikash — frontend.
+/* Hisab Nikash — frontend.
    Full Bangla first, Bangla/English toggle saved in localStorage.
    Bengali digits in Bangla mode, Latin digits in English mode.
    AI quick entry calls POST /api/parse and PRE-FILLS the form — never auto-saves.
@@ -20,7 +20,7 @@ const CAT_NAME = {
 
 const I18N = {
   bn: {
-    appTitle: "AI হিসাব নিকাশ", appSubtitle: "দৈনন্দিন আয়-ব্যয়ের স্মার্ট হিসাব",
+    appTitle: "হিসাব নিকাশ", appSubtitle: "দৈনন্দিন আয়-ব্যয়ের স্মার্ট হিসাব",
     income: "আয়", expense: "খরচ", savings: "সঞ্চয়",
     aiQuick: "AI দ্রুত লিখন", aiQuickHint: "লিখুন বা বলুন — যেমন: “আজ বাজারে ৫০০ টাকা খরচ”",
     aiPlaceholder: "যেমন: আজ বাজারে ৫০০ টাকা খরচ",
@@ -56,7 +56,7 @@ const I18N = {
     notifyOff: "রিমাইন্ডার বন্ধ আছে।",
     notifyNeedPermission: "নোটিফিকেশনের অনুমতি দিলে তবেই রিমাইন্ডার আসবে — ব্রাউজারের অনুমতির বাক্সে Allow চাপুন।",
     notifyDenied: "নোটিফিকেশনের অনুমতি বন্ধ করা আছে — ব্রাউজারের সাইট সেটিংস থেকে অনুমতি দিলে রিমাইন্ডার চালু হবে।",
-    notifyDeniedNative: "নোটিফিকেশনের অনুমতি বন্ধ আছে — ফোনের Settings → Apps → AI হিসাব নিকাশ → Notifications থেকে চালু করলে রিমাইন্ডার আসবে।",
+    notifyDeniedNative: "নোটিফিকেশনের অনুমতি বন্ধ আছে — ফোনের Settings → Apps → হিসাব নিকাশ → Notifications থেকে চালু করলে রিমাইন্ডার আসবে।",
     notifyUnsupported: "এই ব্রাউজারে পুশ নোটিফিকেশন চলে না — তবে অ্যাপ খুললেই ছুটে যাওয়া দিনের রিমাইন্ডার দেখতে পাবেন।",
     notifyNoServerPush: "সার্ভারের পুশ এখনো সেট হয়নি — তবু অ্যাপ খোলা থাকলে বা ইন্টারনেট ফিরলে রিমাইন্ডার দেখাবে।",
     missedTitle: "⚠️ আজকের হিসাব এখনো লেখা হয়নি",
@@ -107,7 +107,7 @@ const I18N = {
     neverActive: "এখনো সক্রিয় হননি",
   },
   en: {
-    appTitle: "AI Hisab Nikash", appSubtitle: "Smart daily income-expense tracker",
+    appTitle: "Hisab Nikash", appSubtitle: "Smart daily income-expense tracker",
     income: "Income", expense: "Expense", savings: "Savings",
     aiQuick: "AI Quick Entry", aiQuickHint: "Type or speak — e.g. “আজ বাজারে ৫০০ টাকা খরচ”",
     aiPlaceholder: "e.g. Bazar 500 taka today",
@@ -143,7 +143,7 @@ const I18N = {
     notifyOff: "Reminders are off.",
     notifyNeedPermission: "Reminders need notification permission — press Allow in the browser prompt.",
     notifyDenied: "Notification permission is blocked — allow it in the browser's site settings to turn reminders on.",
-    notifyDeniedNative: "Notification permission is off — turn it on in your phone's Settings → Apps → AI Hisab Nikash → Notifications and reminders will come.",
+    notifyDeniedNative: "Notification permission is off — turn it on in your phone's Settings → Apps → Hisab Nikash → Notifications and reminders will come.",
     notifyUnsupported: "Push notifications don't work in this browser — but opening the app will still show you any missed-day reminder.",
     notifyNoServerPush: "Server push is not set up yet — reminders will still show when you open the app or when the internet returns.",
     missedTitle: "⚠️ Today's accounts are not written yet",
@@ -1683,7 +1683,7 @@ async function showCatchUpReminder(st) {
   try {
     if ("serviceWorker" in navigator && Notification.permission === "granted") {
       const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification("AI হিসাব নিকাশ", {
+      await reg.showNotification("হিসাব নিকাশ", {
         body, icon: "/static/icon-192.png", badge: "/static/icon.svg",
         tag: "hn-daily-reminder",
       });
@@ -1790,7 +1790,7 @@ async function scheduleLocalReminder() {
     }
     await LN.schedule({ notifications: [{
       id: LOCAL_REMINDER_ID,
-      title: "AI হিসাব নিকাশ",
+      title: "হিসাব নিকাশ",
       body: I18N.bn.reminderMsg,
       schedule: { on: { hour: 9, minute: 0 }, repeats: true },
     }] });

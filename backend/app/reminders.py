@@ -1,4 +1,4 @@
-"""Daily reminder rules + Web Push sending for AI Hisab Nikash.
+"""Daily reminder rules + Web Push sending for Hisab Nikash.
 
 Rule (per user — every account has its own entries): a reminder is due
 when THAT user's last saved entry is more than 1 day old — i.e. at least
@@ -42,8 +42,8 @@ MESSAGE_BN = ("আজকের হিসাব কি লিখেছো? আজ
 MESSAGE_EN = ("Have you written today's accounts yet? Today is part of "
               "your daily accounts too — open the app now and write "
               "today's expense or income.")
-TITLE_BN = "AI হিসাব নিকাশ — আজকের হিসাব"
-TITLE_EN = "AI Hisab Nikash — Today's accounts"
+TITLE_BN = "হিসাব নিকাশ — আজকের হিসাব"
+TITLE_EN = "Hisab Nikash — Today's accounts"
 
 
 def now_dhaka() -> datetime:
