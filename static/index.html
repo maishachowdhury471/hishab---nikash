@@ -171,7 +171,6 @@
   <section id="aiCard" class="card mt-4 p-4 sm:p-5 border-l-4 border-emerald-600">
     <h2 class="font-bold text-emerald-700 text-base sm:text-lg">✦ <span data-i18n="aiQuick">AI দ্রুত লিখন</span></h2>
     <p class="text-sm text-gray-500 break-words" data-i18n="aiQuickHint">লিখুন বা বলুন — যেমন: “আজ বাজারে ৫০০ টাকা খরচ”</p>
-    <p id="aiOfflineNote" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 mt-2" data-i18n="aiOfflineNote">অফলাইনে AI বন্ধ আছে — নিচের ফরমে নিজে লিখে সংরক্ষণ করুন।</p>
     <div class="flex items-center gap-2 mt-3">
       <input id="aiText" type="text" enterkeyhint="go" autocomplete="off"
              class="flex-1 min-w-0 w-full border rounded-lg px-3 py-2.5"
@@ -243,7 +242,6 @@
   <section class="card mt-4 p-4 sm:p-5 border-l-4 border-amber-500" id="notifySection">
     <h2 class="font-bold text-amber-700 text-base sm:text-lg">🔔 <span data-i18n="notifyTitle">প্রতিদিনের হিসাবের রিমাইন্ডার</span></h2>
     <p class="text-sm text-gray-500 mt-1 break-words" data-i18n="notifyText">১ দিনের বেশি হিসাব না লিখলে সকাল ৯টায় মনে করিয়ে দেওয়া হবে — “আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে, এখনই হিসাব লিখে ফেলো।”</p>
-    <p class="text-xs text-gray-400 mt-2 break-words" data-i18n="notifyLimit">সত্য কথা: ফোনের Chrome পুরোপুরি বন্ধ থাকলে আর ইন্টারনেট না থাকলে নোটিফিকেশন ঠিক সময়ে আসতে পারে না — এটা PWA-এর সীমা। তবে অ্যাপ খুললেই বা ইন্টারনেট ফিরলেই ছুটে যাওয়া রিমাইন্ডারটি আসল সময়সহ দেখিয়ে দেওয়া হবে।</p>
     <div class="flex gap-2 mt-3">
       <button id="notifyEnableBtn" type="button" class="flex-1 min-w-0 btn-primary rounded-lg py-3 font-bold" data-i18n="notifyEnable">রিমাইন্ডার চালু করো</button>
       <button id="notifyDisableBtn" type="button" class="hidden flex-1 min-w-0 bg-gray-200 hover:bg-gray-300 rounded-lg py-3 font-semibold" data-i18n="notifyDisable">রিমাইন্ডার বন্ধ করো</button>
@@ -284,7 +282,7 @@
   <!-- PWA install hint -->
   <section class="bg-emerald-50 border border-emerald-200 rounded-2xl mt-4 p-4 sm:p-5 text-sm">
     <p class="font-semibold text-emerald-800" data-i18n="installTitle">📱 ফোনে অ্যাপ হিসেবে বসান</p>
-    <p class="text-gray-600 mt-1 break-words" data-i18n="installHint">ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। ইন্টারনেট না থাকলেও হিসাব দেখা ও লেখা যাবে — ইন্টারনেট ফিরলেই সব সার্ভারে পাঠানো হবে।</p>
+    <p class="text-gray-600 mt-1 break-words" data-i18n="installHint">ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। ইন্টারনেট না থাকলেও হিসাব দেখা ও লেখা যাবে।</p>
   </section>
 
   <!-- Developer footer — very bottom of the app -->
@@ -305,6 +303,7 @@
     <h2 class="font-bold text-base sm:text-lg min-w-0" data-i18n="adminTitle">🛡️ অ্যাডমিন ড্যাশবোর্ড</h2>
   </div>
   <p id="adminStatus" class="hidden text-sm mt-2 break-words"></p>
+  <p id="adminOfflineNote" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 mt-2" data-i18n="adminOfflineNote">অফলাইনে আছো — শেষবারের সংরক্ষিত তথ্য দেখানো হচ্ছে।</p>
 
   <!-- Stats -->
   <section class="card mt-4 p-4 sm:p-5">

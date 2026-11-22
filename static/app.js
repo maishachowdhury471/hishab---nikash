@@ -34,13 +34,12 @@ const I18N = {
     compareTitle: "গত মাসের সাথে তুলনা", colCategory: "খাত", colThis: "এই মাস", colLast: "গত মাস", colDiff: "পার্থক্য",
     emptyCompare: "তুলনা করার মতো গত মাসের হিসাব নেই।",
     installTitle: "📱 ফোনে অ্যাপ হিসেবে বসান",
-    installHint: "ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। ইন্টারনেট না থাকলেও হিসাব দেখা ও লেখা যাবে — ইন্টারনেট ফিরলেই সব সার্ভারে পাঠানো হবে।",
+    installHint: "ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। ইন্টারনেট না থাকলেও হিসাব দেখা ও লেখা যাবে।",
     pendingTag: "⏳ পাঠানো বাকি",
-    offlineBanner: "📶 অফলাইনে আছো — হিসাব দেখা ও লেখা যাবে, ইন্টারনেট ফিরলেই সার্ভারে পাঠানো হবে।",
-    offlineBannerPending: "📶 অফলাইনে আছো — {n}টি হিসাব পাঠানো বাকি, ইন্টারনেট ফিরলেই পাঠানো হবে।",
+    offlineBanner: "📶 অফলাইনে আছো",
+    offlineBannerPending: "📶 অফলাইনে আছো",
     onlineSyncPending: "🌐 ইন্টারনেট ফিরেছে — {n}টি হিসাব পাঠানো হচ্ছে…",
     aiNeedsInternet: "AI বুঝতে ইন্টারনেট লাগে — ফরমে নিজে লিখে সংরক্ষণ করো।",
-    aiOfflineNote: "অফলাইনে AI বন্ধ আছে — নিচের ফরমে নিজে লিখে সংরক্ষণ করুন।",
     footer: "আপনার হিসাব, আপনার হাতে",
     parsedAs: "বোঝা গেল — নিচের ফরমে বসানো হয়েছে, যাচাই করে সংরক্ষণ করুন:",
     noAmount: "টাকার পরিমাণ পাওয়া যায়নি — ফরমে নিজে বসান।",
@@ -51,9 +50,8 @@ const I18N = {
     totalDay: "মোট", vsLast: "গত মাসের চেয়ে", noChange: "পরিবর্তন নেই",
     notifyTitle: "প্রতিদিনের হিসাবের রিমাইন্ডার",
     notifyText: "১ দিনের বেশি হিসাব না লিখলে সকাল ৯টায় মনে করিয়ে দেওয়া হবে — “আজকের দিনটাও তোমার দৈনন্দিন হিসাবের মধ্যে পড়ে, এখনই হিসাব লিখে ফেলো।”",
-    notifyLimit: "সত্য কথা: ফোনের Chrome পুরোপুরি বন্ধ থাকলে আর ইন্টারনেট না থাকলে নোটিফিকেশন ঠিক সময়ে আসতে পারে না — এটা PWA-এর সীমা। তবে অ্যাপ খুললেই বা ইন্টারনেট ফিরলেই ছুটে যাওয়া রিমাইন্ডারটি আসল সময়সহ দেখিয়ে দেওয়া হবে।",
     notifyEnable: "রিমাইন্ডার চালু করো", notifyDisable: "রিমাইন্ডার বন্ধ করো",
-    notifyOn: "✅ রিমাইন্ডার চালু আছে — ১ দিনের বেশি হিসাব না লিখলে সকাল ৯টায় নোটিফিকেশন আসবে।",
+    notifyOn: "✅ রিমাইন্ডার চালু আছে",
     notifyOff: "রিমাইন্ডার বন্ধ আছে।",
     notifyNeedPermission: "নোটিফিকেশনের অনুমতি দিলে তবেই রিমাইন্ডার আসবে — ব্রাউজারের অনুমতির বাক্সে Allow চাপুন।",
     notifyDenied: "নোটিফিকেশনের অনুমতি বন্ধ করা আছে — ব্রাউজারের সাইট সেটিংস থেকে অনুমতি দিলে রিমাইন্ডার চালু হবে।",
@@ -101,6 +99,8 @@ const I18N = {
     lastActiveLabel: "সর্বশেষ সক্রিয়",
     noUsersFound: "কোনো ব্যবহারকারী পাওয়া যায়নি।",
     adminLoadErr: "অ্যাডমিন তথ্য লোড করা যায়নি — আবার চেষ্টা করুন।",
+    adminOfflineNote: "অফলাইনে আছো — শেষবারের সংরক্ষিত তথ্য দেখানো হচ্ছে।",
+    adminMutationsOffline: "অফলাইনে বন্ধ আছে — ইন্টারনেট ফিরলে করা যাবে।",
     roleChanged: "রোল পরিবর্তন করা হয়েছে।",
     settingsSaved: "সেটিংস সংরক্ষণ করা হয়েছে।",
     selfRowNote: "নিজের রোল বদলানো যায় না।",
@@ -122,13 +122,12 @@ const I18N = {
     compareTitle: "Compare with last month", colCategory: "Category", colThis: "This month", colLast: "Last month", colDiff: "Difference",
     emptyCompare: "No last-month entries to compare with.",
     installTitle: "📱 Install as an app on your phone",
-    installHint: "From the browser menu choose “Add to Home screen” — it will open like an app. You can view and write accounts even without internet — everything syncs to the server when the internet returns.",
+    installHint: "From the browser menu choose “Add to Home screen” — it will open like an app. You can view and write accounts even without internet.",
     pendingTag: "⏳ pending",
-    offlineBanner: "📶 You're offline — you can view and write accounts; they'll be sent when the internet returns.",
-    offlineBannerPending: "📶 You're offline — {n} entries still to send; they'll go when the internet returns.",
+    offlineBanner: "📶 You're offline",
+    offlineBannerPending: "📶 You're offline",
     onlineSyncPending: "🌐 Back online — sending {n} entries…",
     aiNeedsInternet: "AI needs internet to understand — write it in the form yourself and save.",
-    aiOfflineNote: "AI is off while offline — write it yourself in the form below and save.",
     footer: "Your accounts, in your hands",
     parsedAs: "Understood — filled into the form below, please check and save:",
     noAmount: "No amount found — please enter it in the form.",
@@ -139,9 +138,8 @@ const I18N = {
     totalDay: "Total", vsLast: "vs last month", noChange: "No change",
     notifyTitle: "Daily accounts reminder",
     notifyText: "If you don't write any accounts for more than 1 day, you will be reminded at 9 AM — “Today is part of your daily accounts too, write today's accounts now.”",
-    notifyLimit: "Honest limit: if Chrome is fully closed on your phone and there is no internet, the notification may not arrive on time — that is a PWA limit. But as soon as you open the app or the internet returns, the missed reminder will be shown with its original time.",
     notifyEnable: "Turn on reminders", notifyDisable: "Turn off reminders",
-    notifyOn: "✅ Reminders are on — if you don't write any accounts for more than 1 day, a notification will come at 9 AM.",
+    notifyOn: "✅ Reminders are on",
     notifyOff: "Reminders are off.",
     notifyNeedPermission: "Reminders need notification permission — press Allow in the browser prompt.",
     notifyDenied: "Notification permission is blocked — allow it in the browser's site settings to turn reminders on.",
@@ -189,6 +187,8 @@ const I18N = {
     lastActiveLabel: "Last active",
     noUsersFound: "No users found.",
     adminLoadErr: "Could not load admin data — please try again.",
+    adminOfflineNote: "You're offline — showing the last saved data.",
+    adminMutationsOffline: "Off while offline — you can do this when the internet returns.",
     roleChanged: "Role changed.",
     settingsSaved: "Settings saved.",
     selfRowNote: "You cannot change your own role.",
@@ -266,9 +266,40 @@ let siteCfg = null;
 async function fetchSiteConfig() {
   try {
     const res = await fetch(apiBase() + "/api/config");
-    if (res.ok) { siteCfg = await res.json(); return siteCfg; }
-  } catch (e) { /* offline — keep the last known config */ }
+    if (res.ok) {
+      siteCfg = await res.json();
+      try { localStorage.setItem("hn-site-cfg", JSON.stringify(siteCfg)); } catch (e2) { /* ignore */ }
+      return siteCfg;
+    }
+  } catch (e) { /* offline — fall through to the cached config */ }
+  // Offline (or a failed fetch): use the last saved public config, so a
+  // cached maintenance state still applies; otherwise maintenance-off.
+  try {
+    const raw = localStorage.getItem("hn-site-cfg");
+    if (raw) siteCfg = JSON.parse(raw);
+  } catch (e2) { /* ignore */ }
   return siteCfg || {};
+}
+/* The signed-in user's role, cached when the server last returned it, so
+   staff can still open the admin screen offline. Only ever reuses the
+   role the SERVER returned for this login — never grants staff by itself.
+   A cached time-limited support role is only reused while still valid. */
+function cacheCurrentUser() {
+  try {
+    if (currentUser) localStorage.setItem("hn-user", JSON.stringify(currentUser));
+  } catch (e) { /* ignore */ }
+}
+function loadCachedUser() {
+  try {
+    const raw = localStorage.getItem("hn-user");
+    if (!raw) return null;
+    const u = JSON.parse(raw);
+    if (!u || typeof u !== "object" || !u.username) return null;
+    if (u.role === "support" && u.support_until && new Date(u.support_until) < Date.now()) {
+      u.role = "user";
+    }
+    return u;
+  } catch (e) { return null; }
 }
 function isStaffUser() {
   const r = currentUser && currentUser.role;
@@ -320,6 +351,7 @@ function showMaintenanceScreen(msg) {
 function afterLogin(data) {
   // Success path for Google sign-in.
   currentUser = data.user;
+  cacheCurrentUser();
   try {
     localStorage.setItem("hn-token", data.token);
     localStorage.setItem("hn-username", data.user.username);
@@ -608,6 +640,7 @@ function logout() {
   try {
     localStorage.removeItem("hn-token");
     localStorage.removeItem("hn-username");
+    localStorage.removeItem("hn-user");
   } catch (e) { /* ignore */ }
   entriesCache = [];
   summaryCache = null;
@@ -651,6 +684,7 @@ async function initAuth() {
     }
     const data = await res.json();
     currentUser = data.user;
+    cacheCurrentUser();
     showApp();
     postTokenToSW();
     loadAll().then(() => flushPendingQueue());
@@ -664,7 +698,9 @@ async function initAuth() {
     // response, not a throw — apiFetch already logged out and cleared the
     // token by then, so getToken() is null and we show the login screen.
     if (getToken()) {
-      try { currentUser = { username: localStorage.getItem("hn-username") || "", role: "user" }; } catch (e2) { currentUser = { username: "", role: "user" }; }
+      // Offline: reuse the role the server last returned for this login,
+      // so a staff user still sees the 🛡️ button and can open admin.
+      try { currentUser = loadCachedUser() || { username: localStorage.getItem("hn-username") || "", role: "user" }; } catch (e2) { currentUser = { username: "", role: "user" }; }
       showApp();
       postTokenToSW();
       loadAll().then(() => flushPendingQueue());
@@ -724,6 +760,7 @@ function monthLabel(ym) {
 
 /* ---------------- admin dashboard (v10) ---------------- */
 let adminUsersCache = [];
+let adminSettingsCache = null;
 function setAdminStatus(msg, isErr) {
   const el = $("adminStatus");
   el.textContent = msg || "";
@@ -745,6 +782,8 @@ function closeAdmin() {
 }
 async function loadAdminDashboard() {
   setAdminStatus("", false);
+  const offNote = $("adminOfflineNote");
+  if (offNote) offNote.classList.add("hidden");
   try {
     const [sRes, setRes, uRes] = await Promise.all([
       apiFetch("/api/admin/stats"),
@@ -752,11 +791,36 @@ async function loadAdminDashboard() {
       apiFetch("/api/admin/users"),
     ]);
     if (!sRes.ok || !setRes.ok || !uRes.ok) throw new Error("load failed");
-    renderAdminStats(await sRes.json());
-    renderAdminSettings(await setRes.json());
+    const stats = await sRes.json();
+    const settings = await setRes.json();
+    renderAdminStats(stats);
+    adminSettingsCache = settings;
+    renderAdminSettings(settings);
     adminUsersCache = await uRes.json();
     renderAdminUsers();
+    // Cache for offline viewing (stats + settings + users).
+    try {
+      localStorage.setItem("hn-cache-admin-stats", JSON.stringify(stats));
+      localStorage.setItem("hn-cache-admin-settings", JSON.stringify(settings));
+      localStorage.setItem("hn-cache-admin-users", JSON.stringify(adminUsersCache));
+    } catch (e2) { /* ignore */ }
   } catch (e) {
+    // Offline: render the last saved admin data, if any.
+    try {
+      const cs = localStorage.getItem("hn-cache-admin-stats");
+      const cm = localStorage.getItem("hn-cache-admin-settings");
+      const cu = localStorage.getItem("hn-cache-admin-users");
+      if (cs && cm && cu) {
+        renderAdminStats(JSON.parse(cs));
+        adminSettingsCache = JSON.parse(cm);
+        renderAdminSettings(adminSettingsCache);
+        adminUsersCache = JSON.parse(cu);
+        renderAdminUsers();
+        setAdminStatus(t("adminOfflineNote"), false);
+        if (offNote) offNote.classList.remove("hidden");
+        return;
+      }
+    } catch (e2) { /* ignore */ }
     setAdminStatus(t("adminLoadErr"), true);
   }
 }
@@ -773,16 +837,28 @@ function renderAdminStats(s) {
 }
 function renderAdminSettings(s) {
   const isAdmin = isAdminUser();
+  const offline = !navigator.onLine;
   $("maintToggle").checked = !!s.maintenance_mode;
   $("maintMsg").value = s.maintenance_message || "";
-  $("maintToggle").disabled = !isAdmin;
-  $("maintMsg").disabled = !isAdmin;
-  $("maintSaveBtn").disabled = !isAdmin;
-  $("maintNote").classList.toggle("hidden", isAdmin);
-  $("adminRoleNote").classList.toggle("hidden", isAdmin);
+  // Admin mutations never run offline — the controls are disabled and a
+  // note says so. (Support users already cannot change these.)
+  $("maintToggle").disabled = !isAdmin || offline;
+  $("maintMsg").disabled = !isAdmin || offline;
+  $("maintSaveBtn").disabled = !isAdmin || offline;
+  if (offline) {
+    $("maintNote").textContent = t("adminMutationsOffline");
+    $("maintNote").classList.remove("hidden");
+    $("adminRoleNote").textContent = t("adminMutationsOffline");
+    $("adminRoleNote").classList.remove("hidden");
+  } else {
+    $("maintNote").textContent = t("maintOnlyAdmin");
+    $("maintNote").classList.toggle("hidden", isAdmin);
+    $("adminRoleNote").textContent = t("roleOnlyAdmin");
+    $("adminRoleNote").classList.toggle("hidden", isAdmin);
+  }
 }
 async function saveAdminSettings() {
-  if (!isAdminUser()) return;
+  if (!isAdminUser() || !navigator.onLine) return;
   try {
     const res = await apiFetch("/api/admin/settings", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -822,9 +898,10 @@ function renderAdminUsers() {
     (u.email || "").toLowerCase().includes(q));
   $("adminNoUsers").classList.toggle("hidden", rows.length > 0);
   const canChange = isAdminUser();
+  const offline = !navigator.onLine;
   $("adminUserList").innerHTML = rows.map((u) => {
     const self = !!(currentUser && u.id === currentUser.id);
-    const disabled = !canChange || self || u.is_main_admin;
+    const disabled = offline || !canChange || self || u.is_main_admin;
     const why = !canChange ? t("roleOnlyAdmin")
       : self ? t("selfRowNote")
       : u.is_main_admin ? t("mainAdminNote") : "";
@@ -862,6 +939,7 @@ function renderAdminUsers() {
   }).join("");
 }
 async function applyRoleChange(userId, btn) {
+  if (!navigator.onLine) return; // role changes never run offline
   const sel = document.querySelector(`[data-role-sel="${userId}"]`);
   const val = sel ? sel.value : "user";
   let role = val, days = null;
@@ -902,7 +980,10 @@ function applyLang() {
   renderAll();
   updateAdminUI();
   updateOfflineBanner();
-  if (!$("adminScreen").classList.contains("hidden")) renderAdminUsers();
+  if (!$("adminScreen").classList.contains("hidden")) {
+    if (adminSettingsCache) renderAdminSettings(adminSettingsCache);
+    renderAdminUsers();
+  }
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
 $("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
@@ -1581,19 +1662,12 @@ function updateOfflineBanner() {
     txt.textContent = t("onlineSyncPending").replace("{n}", fmtNum(n));
   }
 }
-/* AI quick entry needs the server, so when offline the whole section is
-   disabled (input + mic + parse button, greyed out with a note) and the
-   user writes in the manual form below instead. Re-enabled on 'online'. */
+/* AI quick entry needs the server, so the section is only shown when
+   online; offline it is completely hidden (the manual form below is the
+   way to write entries then). Re-shown on 'online'. */
 function updateAiSectionOffline() {
-  const offline = !navigator.onLine;
   const card = $("aiCard");
-  if (card) card.classList.toggle("opacity-50", offline);
-  ["aiText", "micBtn", "aiParseBtn"].forEach((id) => {
-    const el = $(id);
-    if (el) el.disabled = offline;
-  });
-  const note = $("aiOfflineNote");
-  if (note) note.classList.toggle("hidden", !offline);
+  if (card) card.classList.toggle("hidden", !navigator.onLine);
 }
 
 /* ---------------- daily reminders ----------------
