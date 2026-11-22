@@ -34,7 +34,12 @@ const I18N = {
     compareTitle: "গত মাসের সাথে তুলনা", colCategory: "খাত", colThis: "এই মাস", colLast: "গত মাস", colDiff: "পার্থক্য",
     emptyCompare: "তুলনা করার মতো গত মাসের হিসাব নেই।",
     installTitle: "📱 ফোনে অ্যাপ হিসেবে বসান",
-    installHint: "ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। অফলাইনে অ্যাপের চেহারা দেখা যাবে, তবে নতুন হিসাব সংরক্ষণে ইন্টারনেট লাগবে।",
+    installHint: "ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। ইন্টারনেট না থাকলেও হিসাব দেখা ও লেখা যাবে — ইন্টারনেট ফিরলেই সব সার্ভারে পাঠানো হবে।",
+    pendingTag: "⏳ পাঠানো বাকি",
+    offlineBanner: "📶 অফলাইনে আছো — হিসাব দেখা ও লেখা যাবে, ইন্টারনেট ফিরলেই সার্ভারে পাঠানো হবে।",
+    offlineBannerPending: "📶 অফলাইনে আছো — {n}টি হিসাব পাঠানো বাকি, ইন্টারনেট ফিরলেই পাঠানো হবে।",
+    onlineSyncPending: "🌐 ইন্টারনেট ফিরেছে — {n}টি হিসাব পাঠানো হচ্ছে…",
+    aiNeedsInternet: "AI বুঝতে ইন্টারনেট লাগে — ফরমে নিজে লিখে সংরক্ষণ করো।",
     footer: "আপনার হিসাব, আপনার হাতে",
     parsedAs: "বোঝা গেল — নিচের ফরমে বসানো হয়েছে, যাচাই করে সংরক্ষণ করুন:",
     noAmount: "টাকার পরিমাণ পাওয়া যায়নি — ফরমে নিজে বসান।",
@@ -116,7 +121,12 @@ const I18N = {
     compareTitle: "Compare with last month", colCategory: "Category", colThis: "This month", colLast: "Last month", colDiff: "Difference",
     emptyCompare: "No last-month entries to compare with.",
     installTitle: "📱 Install as an app on your phone",
-    installHint: "From the browser menu choose “Add to Home screen” — it will open like an app. The app shell works offline, but saving new entries needs internet.",
+    installHint: "From the browser menu choose “Add to Home screen” — it will open like an app. You can view and write accounts even without internet — everything syncs to the server when the internet returns.",
+    pendingTag: "⏳ pending",
+    offlineBanner: "📶 You're offline — you can view and write accounts; they'll be sent when the internet returns.",
+    offlineBannerPending: "📶 You're offline — {n} entries still to send; they'll go when the internet returns.",
+    onlineSyncPending: "🌐 Back online — sending {n} entries…",
+    aiNeedsInternet: "AI needs internet to understand — write it in the form yourself and save.",
     footer: "Your accounts, in your hands",
     parsedAs: "Understood — filled into the form below, please check and save:",
     noAmount: "No amount found — please enter it in the form.",
@@ -322,7 +332,7 @@ function afterLogin(data) {
   showApp();
   postTokenToSW();
   resetForm();
-  loadAll();
+  loadAll().then(() => flushPendingQueue());
   updateNotifyUI();
   checkReminders();
   syncPushSubscription();
@@ -641,12 +651,29 @@ async function initAuth() {
     currentUser = data.user;
     showApp();
     postTokenToSW();
-    loadAll();
+    loadAll().then(() => flushPendingQueue());
     updateNotifyUI();
     checkReminders();
     syncPushSubscription();
     autoPromptReminders();
-  } catch (e) { showAuth(); }
+  } catch (e) {
+    // Network throw with a saved token = offline, not logged out (v10.3):
+    // open the app with cached data and the offline queue. A 401 is a
+    // response, not a throw — apiFetch already logged out and cleared the
+    // token by then, so getToken() is null and we show the login screen.
+    if (getToken()) {
+      try { currentUser = { username: localStorage.getItem("hn-username") || "", role: "user" }; } catch (e2) { currentUser = { username: "", role: "user" }; }
+      showApp();
+      postTokenToSW();
+      loadAll().then(() => flushPendingQueue());
+      updateNotifyUI();
+      checkReminders();
+      updateOfflineBanner();
+      if (isCapacitor()) autoPromptReminders();
+    } else {
+      showAuth();
+    }
+  }
 }
 async function postTokenToSW() {
   // The service worker cannot read localStorage — hand it the token so
@@ -872,6 +899,7 @@ function applyLang() {
   fillCategoryOptions();
   renderAll();
   updateAdminUI();
+  updateOfflineBanner();
   if (!$("adminScreen").classList.contains("hidden")) renderAdminUsers();
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
@@ -929,16 +957,33 @@ $("entryForm").addEventListener("submit", async (e) => {
     date: $("entryDate").value,
   };
   const id = $("editId").value;
-  const res = await apiFetch(id ? `/api/entries/${id}` : "/api/entries", {
-    method: id ? "PUT" : "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  if (id && isTmpId(id)) {
+    // A not-yet-synced entry: never PUT a tmp id to the server — merge
+    // into its queued create instead, then try to flush (v10.3).
+    saveEntryOffline(id, payload);
+    return;
+  }
+  let res = null;
+  try {
+    res = await apiFetch(id ? `/api/entries/${id}` : "/api/entries", {
+      method: id ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    // Network throw = offline → queue it instead of alerting (v10.3).
+    saveEntryOffline(id, payload);
+    return;
+  }
   if (res.status === 401) return; // apiFetch already showed the login screen
-  if (!res.ok) { alert(await res.text()); return; }
+  if (!res.ok) {
+    if (!navigator.onLine) { saveEntryOffline(id, payload); return; }
+    alert(await res.text()); return;
+  }
   resetForm();
   loadAll();
   checkReminders();
+  flushPendingQueue();
   // APK: today's accounts are now written — cancel today's local reminder.
   if (payload.date === localTodayStr()) cancelLocalReminder();
 });
@@ -978,9 +1023,20 @@ function closeDeleteModal() {
 async function confirmDeleteModal() {
   if (pendingDeleteId == null) return;
   const id = pendingDeleteId;
+  const entry = pendingDeleteEntry;
   closeDeleteModal();
-  await apiFetch(`/api/entries/${id}`, { method: "DELETE" });
+  if (isTmpId(id)) { deleteEntryOffline(id, entry); return; }
+  try {
+    const res = await apiFetch(`/api/entries/${id}`, { method: "DELETE" });
+    if (res.status === 401) return;
+    if (!res.ok && !navigator.onLine) { deleteEntryOffline(id, entry); return; }
+  } catch (err) {
+    // Network throw = offline → queue the delete (v10.3).
+    deleteEntryOffline(id, entry);
+    return;
+  }
   loadAll();
+  flushPendingQueue();
 }
 $("deleteModalCancel").addEventListener("click", closeDeleteModal);
 $("deleteModalConfirm").addEventListener("click", confirmDeleteModal);
@@ -1019,6 +1075,14 @@ function prefillFromParsed(p) {
 $("aiParseBtn").addEventListener("click", async () => {
   const text = $("aiText").value.trim();
   if (!text) return;
+  if (!navigator.onLine) {
+    // AI parsing needs the server — say so inline, keep the manual
+    // form working offline (v10.3).
+    const box = $("aiResult");
+    box.classList.remove("hidden");
+    box.textContent = t("aiNeedsInternet");
+    return;
+  }
   try { prefillFromParsed(await parseQuick(text)); }
   catch (err) { alert(err.message); }
 });
@@ -1077,7 +1141,7 @@ function renderList() {
       row.className = "flex items-center justify-between py-2 gap-2";
       row.innerHTML = `
         <div class="min-w-0 flex-1">
-          <div class="font-medium break-words">${CAT_NAME[lang][e.category] || e.category}${e.note ? ` — <span class="text-gray-500 font-normal">${escapeHtml(e.note)}</span>` : ""}</div>
+          <div class="font-medium break-words">${CAT_NAME[lang][e.category] || e.category}${e._pending ? ` <span class="inline-block align-middle text-[11px] font-semibold bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 whitespace-nowrap">${t("pendingTag")}</span>` : ""}${e.note ? ` — <span class="text-gray-500 font-normal">${escapeHtml(e.note)}</span>` : ""}</div>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <span class="font-bold whitespace-nowrap ${e.type === "income" ? "text-emerald-700" : "text-red-600"}">${e.type === "income" ? "+" : "−"}${fmtMoney(e.amount)}</span>
@@ -1172,12 +1236,33 @@ function renderSummary() {
 async function loadAll() {
   $("monthLabel").textContent = monthLabel(curMonth);
   $("monthInput").value = curMonth;
-  const [eRes, sRes] = await Promise.all([
-    apiFetch(`/api/entries?month=${curMonth}`),
-    apiFetch(`/api/summary?month=${curMonth}&lang=${lang}`),
-  ]);
-  entriesCache = eRes.ok ? await eRes.json() : [];
-  summaryCache = sRes.ok ? await sRes.json() : null;
+  try {
+    const [eRes, sRes] = await Promise.all([
+      apiFetch(`/api/entries?month=${curMonth}`),
+      apiFetch(`/api/summary?month=${curMonth}&lang=${lang}`),
+    ]);
+    entriesCache = eRes.ok ? await eRes.json() : [];
+    summaryCache = sRes.ok ? await sRes.json() : null;
+    if (eRes.ok && sRes.ok) {
+      // Online and fresh: server is the source of truth. Layer this
+      // month's not-yet-synced ops back on top (v10.3), then cache.
+      mergePendingIntoCache();
+      saveMonthCache(curMonth, entriesCache, summaryCache);
+    }
+  } catch (e) {
+    // Network throw (offline): fall back to the last-loaded month data.
+    // A 401 is a *response*, not a throw, so this never masks a logout.
+    const cached = loadMonthCache(curMonth);
+    if (cached) {
+      entriesCache = cached.entries || [];
+      summaryCache = cached.summary || null;
+    } else {
+      entriesCache = [];
+      summaryCache = null;
+    }
+    // Pending ops for this month still apply on top of the cached data.
+    mergePendingIntoCache();
+  }
   // Remember the newest entry date on this device so the missed-days
   // card can work fully offline (status API refines it when online).
   if (entriesCache.length) {
@@ -1189,6 +1274,309 @@ async function loadAll() {
   }
   scheduleLocalReminder(); // APK: (re)create the daily 09:00 local reminder
   renderAll();
+}
+
+/* ---------------- offline-first (v10.3) ------------
+   Maisha's rule: everything that exists must also work offline, and
+   sync when the internet returns. Layers:
+   - Last-loaded month data is cached in localStorage, so the app opens
+     offline with real data (the server stays the source of truth online).
+   - Entry creates/updates/deletes made offline go into a per-device
+     queue (hn-pending-queue) and are applied to the list immediately
+     (optimistic, marked "pending"), then flushed in order when online.
+   - The service worker is untouched: it still caches only the app shell
+     and never caches API responses. The queue lives here, in app.js. */
+const PENDING_QUEUE_KEY = "hn-pending-queue";
+function loadPendingQueue() {
+  try {
+    const raw = localStorage.getItem(PENDING_QUEUE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+function savePendingQueue(q) {
+  try { localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(q)); } catch (e) { /* ignore */ }
+}
+function isTmpId(id) { return String(id || "").startsWith("tmp-"); }
+function makeTmpId() {
+  return "tmp-" + Date.now() + "-" + Math.floor(Math.random() * 1e9);
+}
+function monthCacheKey(kind, month) { return "hn-cache-" + kind + "-" + month; }
+function saveMonthCache(month, entries, summary) {
+  try {
+    localStorage.setItem(monthCacheKey("entries", month), JSON.stringify(entries || []));
+    localStorage.setItem(monthCacheKey("summary", month), JSON.stringify(summary || null));
+  } catch (e) { /* ignore */ }
+}
+function loadMonthCache(month) {
+  try {
+    const eRaw = localStorage.getItem(monthCacheKey("entries", month));
+    const sRaw = localStorage.getItem(monthCacheKey("summary", month));
+    if (eRaw == null && sRaw == null) return null;
+    return {
+      entries: eRaw ? JSON.parse(eRaw) : [],
+      summary: sRaw ? JSON.parse(sRaw) : null,
+    };
+  } catch (e) { return null; }
+}
+function sortEntriesCache() {
+  // Server order is date desc, id desc; a just-added offline entry
+  // belongs at the top of its day, so tmp entries sort first on ties.
+  entriesCache.sort((a, b) => (b.date || "").localeCompare(a.date || "")
+    || (isTmpId(a.id) ? -1 : isTmpId(b.id) ? 1 : (b.id - a.id)));
+}
+function opAffectsMonth(op, month) {
+  if (!op) return false;
+  if (op.op === "create" || op.op === "update") {
+    if (op.payload && op.payload.date && op.payload.date.slice(0, 7) === month) return true;
+    if (op.op === "update" && op.prevDate && op.prevDate.slice(0, 7) === month) return true;
+    return false;
+  }
+  if (op.op === "delete") return !!(op.date && op.date.slice(0, 7) === month);
+  return false;
+}
+function pendingAffectsMonth(month) {
+  return loadPendingQueue().some((op) => opAffectsMonth(op, month));
+}
+function pctChangeLocal(n, o) {
+  // Same rule as the server's pct_change (backend/app/main.py):
+  // old == 0 → null, else round((new - old) / old * 100, 1).
+  if (!o) return null;
+  return Math.round((n - o) / o * 1000) / 10;
+}
+function refreshLocalSummary() {
+  // Only when pending ops touch this month: recompute the pure sums
+  // (income/expense/savings, by_category, comparison, pct changes,
+  // overspend) from the local list with the SAME rules as the server
+  // (_totals + pct_change + the overspend rule in backend/app/main.py).
+  // Advice stays from the cached server summary — it refreshes on sync.
+  // With no pending ops, the server summary is used verbatim, so online
+  // behaviour is byte-for-byte unchanged.
+  if (!pendingAffectsMonth(curMonth)) return;
+  const prev = summaryCache || {};
+  const prevByCat = prev.prev_by_category || {};
+  const income = entriesCache.filter((e) => e.type === "income").reduce((s, e) => s + (+e.amount || 0), 0);
+  const expense = entriesCache.filter((e) => e.type === "expense").reduce((s, e) => s + (+e.amount || 0), 0);
+  const byCat = {};
+  entriesCache.forEach((e) => { byCat[e.category] = (byCat[e.category] || 0) + (+e.amount || 0); });
+  const cats = [...new Set([...Object.keys(byCat), ...Object.keys(prevByCat)])];
+  const comparison = cats
+    .filter((c) => (byCat[c] || 0) !== 0 || (prevByCat[c] || 0) !== 0)
+    .map((c) => {
+      const cm = byCat[c] || 0, pm = prevByCat[c] || 0;
+      return { category: c, this_month: cm, last_month: pm,
+               difference: Math.round((cm - pm) * 100) / 100,
+               pct_change: pctChangeLocal(cm, pm) };
+    });
+  const overspend = Object.keys(byCat)
+    .filter((c) => (prevByCat[c] || 0) > 0 && (byCat[c] || 0) > (prevByCat[c] || 0) * 1.3)
+    .map((c) => ({ category: c,
+      pct_increase: Math.round(((byCat[c] - prevByCat[c]) / prevByCat[c]) * 1000) / 10,
+      this_month: byCat[c], last_month: prevByCat[c] }));
+  const prevIncome = prev.prev_income || 0, prevExpense = prev.prev_expense || 0, prevSavings = prev.prev_savings || 0;
+  const savings = income - expense;
+  summaryCache = Object.assign({}, prev, {
+    month: curMonth, income, expense, savings,
+    income_pct_change: pctChangeLocal(income, prevIncome),
+    expense_pct_change: pctChangeLocal(expense, prevExpense),
+    savings_pct_change: pctChangeLocal(savings, prevSavings),
+    by_category: byCat, comparison, overspend,
+  });
+  if (!Array.isArray(summaryCache.advice)) summaryCache.advice = [];
+}
+function mergePendingIntoCache() {
+  // After a load (online or from cache), re-apply this month's pending
+  // ops on top of the base data so queued entries don't vanish from the
+  // list while waiting for the flush. The base is rebuilt from the
+  // server/cache on every load, so this is idempotent — creates are
+  // skipped when their tmp id is already present.
+  const queue = loadPendingQueue();
+  if (!queue.length) return;
+  let changed = false;
+  queue.forEach((op) => {
+    if (!opAffectsMonth(op, curMonth)) return;
+    if (op.op === "create") {
+      if (!entriesCache.some((x) => String(x.id) === String(op.tmpId))) {
+        entriesCache.push(Object.assign({}, op.payload, { id: op.tmpId, _pending: true }));
+        changed = true;
+      }
+    } else if (op.op === "update") {
+      const e = entriesCache.find((x) => String(x.id) === String(op.id));
+      if (e) { Object.assign(e, op.payload); e._pending = true; changed = true; }
+    } else if (op.op === "delete") {
+      const before = entriesCache.length;
+      entriesCache = entriesCache.filter((x) => String(x.id) !== String(op.id));
+      if (entriesCache.length !== before) changed = true;
+    }
+  });
+  if (changed) { sortEntriesCache(); refreshLocalSummary(); }
+}
+function rememberNewestEntryDate() {
+  if (!entriesCache.length) return;
+  const maxDate = entriesCache.reduce((m, e) => (e.date > m ? e.date : m), entriesCache[0].date);
+  try {
+    const stored = localStorage.getItem("hn-last-entry-date");
+    if (!stored || maxDate > stored) localStorage.setItem("hn-last-entry-date", maxDate);
+  } catch (e) { /* ignore */ }
+}
+function saveEntryOffline(id, payload) {
+  // Queue the op and apply it to the list immediately — exactly the
+  // same visible outcome as the online success path (form reset,
+  // re-render, reminder check, today's local reminder cancelled).
+  if (!getToken()) return;
+  const queue = loadPendingQueue();
+  if (id) {
+    if (isTmpId(id)) {
+      // Never PUT a tmp id to the server — merge into its queued create.
+      const op = queue.find((o) => o.op === "create" && o.tmpId === id);
+      if (op) op.payload = Object.assign({}, payload);
+      const e = entriesCache.find((x) => String(x.id) === String(id));
+      if (e) {
+        Object.assign(e, payload);
+        if (String(e.date || "").slice(0, 7) !== curMonth) {
+          entriesCache = entriesCache.filter((x) => String(x.id) !== String(id));
+        }
+      }
+    } else {
+      const e = entriesCache.find((x) => String(x.id) === String(id));
+      let prevDate = null;
+      if (e) {
+        prevDate = e.date;
+        Object.assign(e, payload);
+        e._pending = true;
+        if (String(e.date || "").slice(0, 7) !== curMonth) {
+          entriesCache = entriesCache.filter((x) => String(x.id) !== String(id));
+        }
+      }
+      const ex = queue.find((o) => o.op === "update" && String(o.id) === String(id));
+      if (ex) { ex.payload = Object.assign({}, payload); if (prevDate) ex.prevDate = prevDate; }
+      else queue.push({ op: "update", id, payload: Object.assign({}, payload), prevDate });
+    }
+  } else {
+    const tmpId = makeTmpId();
+    queue.push({ op: "create", tmpId, payload: Object.assign({}, payload) });
+    if (String(payload.date || "").slice(0, 7) === curMonth) {
+      entriesCache.push(Object.assign({}, payload, { id: tmpId, _pending: true }));
+      sortEntriesCache();
+    }
+  }
+  savePendingQueue(queue);
+  refreshLocalSummary();
+  saveMonthCache(curMonth, entriesCache, summaryCache);
+  rememberNewestEntryDate();
+  resetForm();
+  renderAll();
+  updateOfflineBanner();
+  checkReminders();
+  flushPendingQueue();
+  if (payload.date === localTodayStr()) cancelLocalReminder();
+}
+function deleteEntryOffline(id, entry) {
+  if (!getToken()) return;
+  const queue = loadPendingQueue();
+  if (isTmpId(id)) {
+    // The entry only exists in the queue — drop its queued create
+    // (and any update for it) instead of queueing a delete for a
+    // server id that does not exist yet.
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if ((queue[i].op === "create" && queue[i].tmpId === id) || queue[i].id === id) queue.splice(i, 1);
+    }
+  } else {
+    // A delete supersedes any queued update for the same entry.
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (queue[i].op === "update" && String(queue[i].id) === String(id)) queue.splice(i, 1);
+    }
+    queue.push({ op: "delete", id, date: entry ? entry.date : null });
+  }
+  savePendingQueue(queue);
+  entriesCache = entriesCache.filter((x) => String(x.id) !== String(id));
+  refreshLocalSummary();
+  saveMonthCache(curMonth, entriesCache, summaryCache);
+  renderAll();
+  updateOfflineBanner();
+  checkReminders();
+  flushPendingQueue();
+}
+let flushingQueue = false;
+async function flushPendingQueue() {
+  // Send queued ops in order when online. Guarded so two flushes never
+  // run concurrently. Network failure stops the flush and keeps the rest
+  // queued; a 4xx (bad data) drops that op and continues; a 401 stops
+  // (apiFetch already logged out). After a full flush, reload from the
+  // server so ids and totals are authoritative.
+  if (flushingQueue || !getToken() || !navigator.onLine) return;
+  const queue = loadPendingQueue();
+  if (!queue.length) return;
+  flushingQueue = true;
+  try {
+    while (queue.length) {
+      const op = queue[0];
+      try {
+        if (op.op === "create") {
+          const res = await apiFetch("/api/entries", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(op.payload),
+          });
+          if (res.status === 401) return;
+          if (!res.ok) {
+            if (res.status >= 400 && res.status < 500) { queue.shift(); savePendingQueue(queue); continue; }
+            return; // 5xx — stop, retry later
+          }
+          const saved = await res.json();
+          const e = entriesCache.find((x) => String(x.id) === String(op.tmpId));
+          if (e) { e.id = saved.id; delete e._pending; }
+          queue.forEach((o) => { if (o.id === op.tmpId) o.id = saved.id; });
+          queue.shift();
+        } else if (op.op === "update") {
+          const res = await apiFetch(`/api/entries/${op.id}`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(op.payload),
+          });
+          if (res.status === 401) return;
+          if (!res.ok) {
+            if (res.status >= 400 && res.status < 500) { queue.shift(); savePendingQueue(queue); continue; }
+            return;
+          }
+          const e = entriesCache.find((x) => String(x.id) === String(op.id));
+          if (e) delete e._pending;
+          queue.shift();
+        } else if (op.op === "delete") {
+          const res = await apiFetch(`/api/entries/${op.id}`, { method: "DELETE" });
+          if (res.status === 401) return;
+          if (!res.ok) {
+            if (res.status >= 400 && res.status < 500) { queue.shift(); savePendingQueue(queue); continue; }
+            return;
+          }
+          queue.shift();
+        } else {
+          queue.shift(); // unknown op — drop it rather than blocking forever
+        }
+        savePendingQueue(queue);
+        updateOfflineBanner();
+      } catch (err) {
+        return; // network throw — stop, keep the rest queued
+      }
+    }
+    updateOfflineBanner();
+    await loadAll();
+  } finally {
+    flushingQueue = false;
+  }
+}
+function updateOfflineBanner() {
+  const b = $("offlineBanner");
+  if (!b) return;
+  const n = loadPendingQueue().length;
+  if (navigator.onLine && n === 0) { b.classList.add("hidden"); return; }
+  b.classList.remove("hidden");
+  const txt = $("offlineBannerText");
+  if (!navigator.onLine) {
+    txt.textContent = n > 0
+      ? t("offlineBannerPending").replace("{n}", fmtNum(n))
+      : t("offlineBanner");
+  } else {
+    txt.textContent = t("onlineSyncPending").replace("{n}", fmtNum(n));
+  }
 }
 
 /* ---------------- daily reminders ----------------
@@ -1586,7 +1974,8 @@ $("missedGoBtn").addEventListener("click", () => {
   $("entryForm").scrollIntoView({ behavior: "smooth" });
   $("amount").focus();
 });
-window.addEventListener("online", checkReminders);
+window.addEventListener("online", () => { updateOfflineBanner(); flushPendingQueue(); checkReminders(); });
+window.addEventListener("offline", () => { updateOfflineBanner(); });
 // Relative times ("৩ ঘণ্টা আগে") age live; local missed check re-runs.
 setInterval(() => { renderReminderHistory(reminderHistoryCache); localMissedCheck(); }, 60000);
 

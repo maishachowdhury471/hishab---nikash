@@ -138,6 +138,9 @@
   <!-- Maintenance banner (staff only, while maintenance mode is on) -->
   <div id="maintBanner" class="hidden mt-4 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-800 break-words"><span data-i18n="maintBanner">⚠️ রক্ষণাবেক্ষণ মোড চালু আছে — সাধারণ ব্যবহারকারীরা এখন অ্যাপ ব্যবহার করতে পারছেন না।</span> <span id="maintBannerMsg"></span></div>
 
+  <!-- Offline banner (shown when offline, or while pending entries sync) -->
+  <div id="offlineBanner" class="hidden mt-4 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-800 break-words"><span id="offlineBannerText"></span></div>
+
   <!-- Month selector -->
   <section class="card mt-4 p-4 sm:p-5">
     <div class="flex items-center justify-between gap-2">
@@ -280,7 +283,7 @@
   <!-- PWA install hint -->
   <section class="bg-emerald-50 border border-emerald-200 rounded-2xl mt-4 p-4 sm:p-5 text-sm">
     <p class="font-semibold text-emerald-800" data-i18n="installTitle">📱 ফোনে অ্যাপ হিসেবে বসান</p>
-    <p class="text-gray-600 mt-1 break-words" data-i18n="installHint">ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। অফলাইনে অ্যাপের চেহারা দেখা যাবে, তবে নতুন হিসাব সংরক্ষণে ইন্টারনেট লাগবে।</p>
+    <p class="text-gray-600 mt-1 break-words" data-i18n="installHint">ব্রাউজারের মেনু থেকে “Add to Home screen” / “হোম স্ক্রিনে যোগ করুন” চাপুন — তাহলে অ্যাপের মতো খুলবে। ইন্টারনেট না থাকলেও হিসাব দেখা ও লেখা যাবে — ইন্টারনেট ফিরলেই সব সার্ভারে পাঠানো হবে।</p>
   </section>
 
   <!-- Developer footer — very bottom of the app -->
