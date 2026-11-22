@@ -228,11 +228,39 @@ let currentUser = null;
 function getToken() {
   try { return localStorage.getItem("hn-token"); } catch (e) { return null; }
 }
+/* ---------------- network status (v10.7) ----------------
+   Offline detection must reflect REAL reachability, not just
+   isOnline() — inside the Android WebView (Capacitor) that flag
+   can stay true when Wi-Fi is connected but the internet is dead, so
+   in the APK (Maisha, v1.3.5) the offline banner never showed and the
+   AI section never hid, even though API fetches were failing. One flag,
+   one setter; every reader uses isOnline(). apiFetch() is the choke
+   point that keeps the flag honest (any response = reachable, a throw
+   = unreachable); the Capacitor Network plugin, when present, reports
+   the phone's own network status as well. */
+let netOnline = typeof navigator === "undefined" || navigator.onLine !== false;
+function isOnline() { return netOnline; }
+function setOnline(value) {
+  const next = !!value;
+  if (next === netOnline) return;
+  netOnline = next;
+  updateOfflineBanner(); // also drives the AI section show/hide
+  if (next) flushPendingQueue(); // reachability is back — send the queue
+}
 async function apiFetch(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   const token = getToken();
   if (token) headers["Authorization"] = "Bearer " + token;
-  const res = await fetch(apiBase() + path, Object.assign({}, opts, { headers }));
+  let res;
+  try {
+    res = await fetch(apiBase() + path, Object.assign({}, opts, { headers }));
+  } catch (err) {
+    // No response at all = the server is unreachable → offline.
+    setOnline(false);
+    throw err;
+  }
+  // Any HTTP response (even 401/503) proves the server is reachable.
+  setOnline(true);
   if (res.status === 401) logout();
   return res;
 }
@@ -837,7 +865,7 @@ function renderAdminStats(s) {
 }
 function renderAdminSettings(s) {
   const isAdmin = isAdminUser();
-  const offline = !navigator.onLine;
+  const offline = !isOnline();
   $("maintToggle").checked = !!s.maintenance_mode;
   $("maintMsg").value = s.maintenance_message || "";
   // Admin mutations never run offline — the controls are disabled and a
@@ -858,7 +886,7 @@ function renderAdminSettings(s) {
   }
 }
 async function saveAdminSettings() {
-  if (!isAdminUser() || !navigator.onLine) return;
+  if (!isAdminUser() || !isOnline()) return;
   try {
     const res = await apiFetch("/api/admin/settings", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -898,7 +926,7 @@ function renderAdminUsers() {
     (u.email || "").toLowerCase().includes(q));
   $("adminNoUsers").classList.toggle("hidden", rows.length > 0);
   const canChange = isAdminUser();
-  const offline = !navigator.onLine;
+  const offline = !isOnline();
   $("adminUserList").innerHTML = rows.map((u) => {
     const self = !!(currentUser && u.id === currentUser.id);
     const disabled = offline || !canChange || self || u.is_main_admin;
@@ -939,7 +967,7 @@ function renderAdminUsers() {
   }).join("");
 }
 async function applyRoleChange(userId, btn) {
-  if (!navigator.onLine) return; // role changes never run offline
+  if (!isOnline()) return; // role changes never run offline
   const sel = document.querySelector(`[data-role-sel="${userId}"]`);
   const val = sel ? sel.value : "user";
   let role = val, days = null;
@@ -1060,7 +1088,7 @@ $("entryForm").addEventListener("submit", async (e) => {
   }
   if (res.status === 401) return; // apiFetch already showed the login screen
   if (!res.ok) {
-    if (!navigator.onLine) { saveEntryOffline(id, payload); return; }
+    if (!isOnline()) { saveEntryOffline(id, payload); return; }
     alert(await res.text()); return;
   }
   resetForm();
@@ -1112,7 +1140,7 @@ async function confirmDeleteModal() {
   try {
     const res = await apiFetch(`/api/entries/${id}`, { method: "DELETE" });
     if (res.status === 401) return;
-    if (!res.ok && !navigator.onLine) { deleteEntryOffline(id, entry); return; }
+    if (!res.ok && !isOnline()) { deleteEntryOffline(id, entry); return; }
   } catch (err) {
     // Network throw = offline → queue the delete (v10.3).
     deleteEntryOffline(id, entry);
@@ -1158,7 +1186,7 @@ function prefillFromParsed(p) {
 $("aiParseBtn").addEventListener("click", async () => {
   const text = $("aiText").value.trim();
   if (!text) return;
-  if (!navigator.onLine) {
+  if (!isOnline()) {
     // AI parsing needs the server — say so inline, keep the manual
     // form working offline (v10.3).
     const box = $("aiResult");
@@ -1587,7 +1615,7 @@ async function flushPendingQueue() {
   // queued; a 4xx (bad data) drops that op and continues; a 401 stops
   // (apiFetch already logged out). After a full flush, reload from the
   // server so ids and totals are authoritative.
-  if (flushingQueue || !getToken() || !navigator.onLine) return;
+  if (flushingQueue || !getToken() || !isOnline()) return;
   const queue = loadPendingQueue();
   if (!queue.length) return;
   flushingQueue = true;
@@ -1651,10 +1679,10 @@ function updateOfflineBanner() {
   if (!b) return;
   updateAiSectionOffline(); // runs first: the online early-return below must not skip it
   const n = loadPendingQueue().length;
-  if (navigator.onLine && n === 0) { b.classList.add("hidden"); return; }
+  if (isOnline() && n === 0) { b.classList.add("hidden"); return; }
   b.classList.remove("hidden");
   const txt = $("offlineBannerText");
-  if (!navigator.onLine) {
+  if (!isOnline()) {
     txt.textContent = n > 0
       ? t("offlineBannerPending").replace("{n}", fmtNum(n))
       : t("offlineBanner");
@@ -1667,7 +1695,7 @@ function updateOfflineBanner() {
    way to write entries then). Re-shown on 'online'. */
 function updateAiSectionOffline() {
   const card = $("aiCard");
-  if (card) card.classList.toggle("hidden", !navigator.onLine);
+  if (card) card.classList.toggle("hidden", !isOnline());
 }
 
 /* ---------------- daily reminders ----------------
@@ -1787,7 +1815,7 @@ async function showCatchUpReminder(st) {
 async function checkReminders() {
   localMissedCheck();
   if (!getToken()) return; // logged out — nothing personal to check
-  if (!navigator.onLine) return;
+  if (!isOnline()) return;
   try {
     const res = await apiFetch("/api/reminders/status");
     if (!res.ok) return;
@@ -1850,6 +1878,33 @@ function localNotificationsPlugin() {
     if (!C || !C.Plugins) return null;
     return C.Plugins.LocalNotifications || null;
   } catch (e) { return null; }
+}
+function networkPlugin() {
+  // DO NOT call window.Capacitor.registerPlugin: it does not exist in
+  // the runtime the APK injects (native-bridge.js) — it only exists in
+  // the full @capacitor/core npm bundle. The injected runtime already
+  // exposes the plugin stub at window.Capacitor.Plugins.Network when
+  // @capacitor/network is installed (APK v1.3.6+); null when absent.
+  try {
+    const C = window.Capacitor;
+    if (!C || !C.Plugins) return null;
+    return C.Plugins.Network || null;
+  } catch (e) { return null; }
+}
+async function initNetworkStatus() {
+  // APK only: the phone's own network status is the reliable signal
+  // inside the WebView (navigator.onLine can stay true with dead Wi-Fi,
+  // which is why the offline banner never showed in the APK on v1.3.5).
+  // PWA: no plugin → no-op; navigator.onLine + apiFetch stay the source.
+  const NP = networkPlugin();
+  if (!NP) return;
+  try {
+    const st = await NP.getStatus();
+    if (st) setOnline(!!st.connected);
+  } catch (e) { /* keep the current flag — apiFetch still reports */ }
+  try {
+    await NP.addListener("networkStatusChange", (s) => { if (s) setOnline(!!s.connected); });
+  } catch (e) { /* listener is best-effort */ }
 }
 function remindersOn() {
   try { return localStorage.getItem("hn-reminders-on") === "1"; } catch (e) { return false; }
@@ -2065,8 +2120,8 @@ $("missedGoBtn").addEventListener("click", () => {
   $("entryForm").scrollIntoView({ behavior: "smooth" });
   $("amount").focus();
 });
-window.addEventListener("online", () => { updateOfflineBanner(); flushPendingQueue(); checkReminders(); });
-window.addEventListener("offline", () => { updateOfflineBanner(); });
+window.addEventListener("online", () => { setOnline(true); checkReminders(); });
+window.addEventListener("offline", () => { setOnline(false); });
 // Relative times ("৩ ঘণ্টা আগে") age live; local missed check re-runs.
 setInterval(() => { renderReminderHistory(reminderHistoryCache); localMissedCheck(); }, 60000);
 
@@ -2094,6 +2149,8 @@ $("adminUserList").addEventListener("click", (ev) => {
 
 resetForm();
 applyLang();
+// Phone network status (APK only, no-op in the PWA) — never blocks boot.
+initNetworkStatus().catch(() => { /* network status is best-effort */ });
 // initAuth first: it decides the maintenance screen and sets
 // currentUser, so initGoogle can tell staff from visitors.
 initAuth().then(() => initGoogle());
