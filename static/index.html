@@ -168,9 +168,10 @@
   </section>
 
   <!-- AI quick entry -->
-  <section class="card mt-4 p-4 sm:p-5 border-l-4 border-emerald-600">
+  <section id="aiCard" class="card mt-4 p-4 sm:p-5 border-l-4 border-emerald-600">
     <h2 class="font-bold text-emerald-700 text-base sm:text-lg">✦ <span data-i18n="aiQuick">AI দ্রুত লিখন</span></h2>
     <p class="text-sm text-gray-500 break-words" data-i18n="aiQuickHint">লিখুন বা বলুন — যেমন: “আজ বাজারে ৫০০ টাকা খরচ”</p>
+    <p id="aiOfflineNote" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 mt-2" data-i18n="aiOfflineNote">অফলাইনে AI বন্ধ আছে — নিচের ফরমে নিজে লিখে সংরক্ষণ করুন।</p>
     <div class="flex items-center gap-2 mt-3">
       <input id="aiText" type="text" enterkeyhint="go" autocomplete="off"
              class="flex-1 min-w-0 w-full border rounded-lg px-3 py-2.5"

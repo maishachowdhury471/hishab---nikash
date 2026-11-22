@@ -40,6 +40,7 @@ const I18N = {
     offlineBannerPending: "📶 অফলাইনে আছো — {n}টি হিসাব পাঠানো বাকি, ইন্টারনেট ফিরলেই পাঠানো হবে।",
     onlineSyncPending: "🌐 ইন্টারনেট ফিরেছে — {n}টি হিসাব পাঠানো হচ্ছে…",
     aiNeedsInternet: "AI বুঝতে ইন্টারনেট লাগে — ফরমে নিজে লিখে সংরক্ষণ করো।",
+    aiOfflineNote: "অফলাইনে AI বন্ধ আছে — নিচের ফরমে নিজে লিখে সংরক্ষণ করুন।",
     footer: "আপনার হিসাব, আপনার হাতে",
     parsedAs: "বোঝা গেল — নিচের ফরমে বসানো হয়েছে, যাচাই করে সংরক্ষণ করুন:",
     noAmount: "টাকার পরিমাণ পাওয়া যায়নি — ফরমে নিজে বসান।",
@@ -127,6 +128,7 @@ const I18N = {
     offlineBannerPending: "📶 You're offline — {n} entries still to send; they'll go when the internet returns.",
     onlineSyncPending: "🌐 Back online — sending {n} entries…",
     aiNeedsInternet: "AI needs internet to understand — write it in the form yourself and save.",
+    aiOfflineNote: "AI is off while offline — write it yourself in the form below and save.",
     footer: "Your accounts, in your hands",
     parsedAs: "Understood — filled into the form below, please check and save:",
     noAmount: "No amount found — please enter it in the form.",
@@ -1566,6 +1568,7 @@ async function flushPendingQueue() {
 function updateOfflineBanner() {
   const b = $("offlineBanner");
   if (!b) return;
+  updateAiSectionOffline(); // runs first: the online early-return below must not skip it
   const n = loadPendingQueue().length;
   if (navigator.onLine && n === 0) { b.classList.add("hidden"); return; }
   b.classList.remove("hidden");
@@ -1577,6 +1580,20 @@ function updateOfflineBanner() {
   } else {
     txt.textContent = t("onlineSyncPending").replace("{n}", fmtNum(n));
   }
+}
+/* AI quick entry needs the server, so when offline the whole section is
+   disabled (input + mic + parse button, greyed out with a note) and the
+   user writes in the manual form below instead. Re-enabled on 'online'. */
+function updateAiSectionOffline() {
+  const offline = !navigator.onLine;
+  const card = $("aiCard");
+  if (card) card.classList.toggle("opacity-50", offline);
+  ["aiText", "micBtn", "aiParseBtn"].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = offline;
+  });
+  const note = $("aiOfflineNote");
+  if (note) note.classList.toggle("hidden", !offline);
 }
 
 /* ---------------- daily reminders ----------------
