@@ -245,7 +245,51 @@ function setOnline(value) {
   if (next === netOnline) return;
   netOnline = next;
   updateOfflineBanner(); // also drives the AI section show/hide
-  if (next) flushPendingQueue(); // reachability is back — send the queue
+  if (next) {
+    stopReachProbe();
+    flushPendingQueue(); // reachability is back — send the queue
+  } else {
+    startReachProbe(); // keep checking until the server answers again
+  }
+}
+/* Reachability prober (v10.8) — the online transition needs an ACTIVE
+   trigger. When Wi-Fi stays connected and only the internet flaps
+   (router/ISP), the browser fires NO "online" event and no API call
+   runs while the user just sits in the app, so nothing ever called
+   setOnline(true) — the banner stayed and the AI section stayed hidden
+   even though the internet was back (Maisha, PWA, v10.7). While offline
+   this probes /api/config every 5s; a single response proves the server
+   is reachable again. The probe uses RAW fetch, never apiFetch, so it
+   can never log the user out or attach auth side effects. */
+let reachProbeTimer = null;
+let reachProbeRunning = false;
+async function probeReachability() {
+  if (isOnline() || reachProbeRunning) return;
+  reachProbeRunning = true;
+  try {
+    let signal;
+    let to = null;
+    try {
+      const ctrl = new AbortController();
+      signal = ctrl.signal;
+      to = setTimeout(() => ctrl.abort(), 5000);
+    } catch (e) { /* no AbortController — probe without a timeout */ }
+    try {
+      await fetch(apiBase() + "/api/config", signal ? { signal } : {});
+      setOnline(true); // any HTTP response = the server is reachable
+    } catch (e) { /* still unreachable — stay offline, keep probing */ }
+    finally { if (to !== null) clearTimeout(to); }
+  } catch (e) { /* never break the app */ }
+  finally { reachProbeRunning = false; }
+}
+function startReachProbe() {
+  if (reachProbeTimer !== null) return; // never two timers at once
+  reachProbeTimer = setInterval(() => { probeReachability().catch(() => {}); }, 5000);
+}
+function stopReachProbe() {
+  if (reachProbeTimer === null) return;
+  clearInterval(reachProbeTimer);
+  reachProbeTimer = null;
 }
 async function apiFetch(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
@@ -2122,6 +2166,16 @@ $("missedGoBtn").addEventListener("click", () => {
 });
 window.addEventListener("online", () => { setOnline(true); checkReminders(); });
 window.addEventListener("offline", () => { setOnline(false); });
+// Coming back to the app while offline: probe at once instead of
+// waiting for the next 5s tick (v10.8). Best-effort, never breaks boot.
+try {
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !isOnline()) probeReachability().catch(() => {});
+  });
+  window.addEventListener("focus", () => {
+    if (!isOnline()) probeReachability().catch(() => {});
+  });
+} catch (e) { /* listeners are best-effort */ }
 // Relative times ("৩ ঘণ্টা আগে") age live; local missed check re-runs.
 setInterval(() => { renderReminderHistory(reminderHistoryCache); localMissedCheck(); }, 60000);
 
