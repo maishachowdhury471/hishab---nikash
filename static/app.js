@@ -257,6 +257,10 @@ function setOnline(value) {
   if (next) {
     stopReachProbe();
     flushPendingQueue(); // reachability is back — send the queue
+    // Empty-queue reconnect (v10.10): pick up changes made elsewhere
+    // while offline. refreshDataIfStale() itself skips when the queue
+    // is non-empty — the flush ends with loadAll() then.
+    refreshDataIfStale();
   } else {
     startReachProbe(); // keep checking until the server answers again
   }
@@ -1609,43 +1613,71 @@ function renderSummary() {
 }
 
 /* ---------------- loading ---------------- */
+/* Foreground/reconnect refresh (v10.10) — the list must pick up changes
+   made in the APK, on another device, or while this tab sat in the
+   background. Before v10.10 loadAll() ran only on boot, login, save,
+   month change, delete and queue flush — an already-open PWA kept
+   showing stale data forever (Maisha, 2026-11-23: a zero-day marked in
+   the APK never appeared in the PWA). refreshDataIfStale() is the
+   single guarded entry point: logged in, online, nothing loading, at
+   least 10s since the last load, no queued ops (the flush ends with
+   loadAll() itself), and no edit open — otherwise it does nothing. */
+let lastLoadAllAt = 0;
+let loadAllRunning = false;
+const REFRESH_MIN_AGE_MS = 10000;
+function refreshDataIfStale() {
+  if (!getToken()) return; // logged out — nothing personal to fetch
+  if (!isOnline()) return; // offline — the prober owns this state
+  if (loadAllRunning) return; // a load is already in flight
+  if (Date.now() - lastLoadAllAt < REFRESH_MIN_AGE_MS) return; // throttled
+  if (loadPendingQueue().length > 0) return; // the flush ends with loadAll()
+  try { if ($("editId") && $("editId").value) return; } catch (e) { /* ignore */ }
+  loadAll();
+}
 async function loadAll() {
-  $("monthLabel").textContent = monthLabel(curMonth);
-  $("monthInput").value = curMonth;
+  if (loadAllRunning) return; // never two loads in flight (v10.10)
+  loadAllRunning = true;
   try {
-    const [eRes, sRes, zRes] = await Promise.all([
-      apiFetch(`/api/entries?month=${curMonth}`),
-      apiFetch(`/api/summary?month=${curMonth}&lang=${lang}`),
-      apiFetch(`/api/zero-days?month=${curMonth}`),
-    ]);
-    entriesCache = eRes.ok ? await eRes.json() : [];
-    summaryCache = sRes.ok ? await sRes.json() : null;
-    zeroDaysCache = zRes.ok ? await zRes.json() : [];
-    if (eRes.ok && sRes.ok) {
-      // Online and fresh: server is the source of truth. Layer this
-      // month's not-yet-synced ops back on top (v10.3), then cache.
+    $("monthLabel").textContent = monthLabel(curMonth);
+    $("monthInput").value = curMonth;
+    try {
+      const [eRes, sRes, zRes] = await Promise.all([
+        apiFetch(`/api/entries?month=${curMonth}`),
+        apiFetch(`/api/summary?month=${curMonth}&lang=${lang}`),
+        apiFetch(`/api/zero-days?month=${curMonth}`),
+      ]);
+      entriesCache = eRes.ok ? await eRes.json() : [];
+      summaryCache = sRes.ok ? await sRes.json() : null;
+      zeroDaysCache = zRes.ok ? await zRes.json() : [];
+      if (eRes.ok && sRes.ok) {
+        // Online and fresh: server is the source of truth. Layer this
+        // month's not-yet-synced ops back on top (v10.3), then cache.
+        mergePendingIntoCache();
+        saveMonthCache(curMonth, entriesCache, summaryCache);
+        saveZeroDaysCache(curMonth, zeroDaysCache);
+      }
+    } catch (e) {
+      // Network throw (offline): fall back to the last-loaded month data.
+      // A 401 is a *response*, not a throw, so this never masks a logout.
+      const cached = loadMonthCache(curMonth);
+      if (cached) {
+        entriesCache = cached.entries || [];
+        summaryCache = cached.summary || null;
+      } else {
+        entriesCache = [];
+        summaryCache = null;
+      }
+      zeroDaysCache = loadZeroDaysCache(curMonth);
+      // Pending ops for this month still apply on top of the cached data.
       mergePendingIntoCache();
-      saveMonthCache(curMonth, entriesCache, summaryCache);
-      saveZeroDaysCache(curMonth, zeroDaysCache);
     }
-  } catch (e) {
-    // Network throw (offline): fall back to the last-loaded month data.
-    // A 401 is a *response*, not a throw, so this never masks a logout.
-    const cached = loadMonthCache(curMonth);
-    if (cached) {
-      entriesCache = cached.entries || [];
-      summaryCache = cached.summary || null;
-    } else {
-      entriesCache = [];
-      summaryCache = null;
-    }
-    zeroDaysCache = loadZeroDaysCache(curMonth);
-    // Pending ops for this month still apply on top of the cached data.
-    mergePendingIntoCache();
+    updateLastActivityDate();
+    scheduleLocalReminder(); // APK: (re)create the daily 09:00 local reminder
+    renderAll();
+  } finally {
+    loadAllRunning = false;
+    lastLoadAllAt = Date.now();
   }
-  updateLastActivityDate();
-  scheduleLocalReminder(); // APK: (re)create the daily 09:00 local reminder
-  renderAll();
 }
 /* Zero-day month cache (v10.9) — same pattern as the entries cache, so
    the marker row and the "today is done" state survive offline. */
@@ -2459,14 +2491,19 @@ $("missedGoBtn").addEventListener("click", () => {
 });
 window.addEventListener("online", () => { setOnline(true); checkReminders(); });
 window.addEventListener("offline", () => { setOnline(false); });
-// Coming back to the app while offline: probe at once instead of
-// waiting for the next 5s tick (v10.8). Best-effort, never breaks boot.
+// Coming back to the app: while offline, probe at once instead of
+// waiting for the next 5s tick (v10.8); while online, pick up changes
+// made elsewhere (v10.10). Both helpers self-guard for the wrong state,
+// so calling both here is safe. Best-effort, never breaks boot.
 try {
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && !isOnline()) probeReachability().catch(() => {});
+    if (document.hidden) return;
+    probeReachability().catch(() => {});
+    refreshDataIfStale();
   });
   window.addEventListener("focus", () => {
-    if (!isOnline()) probeReachability().catch(() => {});
+    probeReachability().catch(() => {});
+    refreshDataIfStale();
   });
 } catch (e) { /* listeners are best-effort */ }
 // Relative times ("৩ ঘণ্টা আগে") age live; local missed check re-runs.
