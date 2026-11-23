@@ -65,6 +65,20 @@ def ensure_schema():
         conn.execute(text(
             'CREATE TABLE IF NOT EXISTS site_settings '
             '("key" VARCHAR PRIMARY KEY, "value" VARCHAR)'))
+        # zero_days (v10.9) — same treatment: fresh DBs get it from
+        # create_all(), an existing live DB needs it added here.
+        # Postgres needs SERIAL for an auto-incrementing id; SQLite
+        # auto-increments an INTEGER PRIMARY KEY by itself.
+        id_type = ("SERIAL PRIMARY KEY"
+                   if engine.dialect.name == "postgresql"
+                   else "INTEGER PRIMARY KEY")
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS zero_days "
+            f"(id {id_type}, user_id INTEGER, "
+            '"date" DATE NOT NULL, "created_at" TIMESTAMP NOT NULL)'))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_zero_days_user_date "
+            "ON zero_days (user_id, \"date\")"))
         # The users.password_hash column is a leftover from the
         # short-lived v6 password login — it stays in the table (no
         # destructive drop) but no code reads or writes it. New Google

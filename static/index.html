@@ -195,6 +195,7 @@
       <div>
         <label for="amount" class="text-sm text-gray-600" data-i18n="amount">টাকার পরিমাণ (৳)</label>
         <input id="amount" type="number" min="0" step="any" inputmode="decimal" required class="w-full border rounded-lg px-3 py-2.5 mt-1" placeholder="৫০০">
+        <p id="amountError" class="hidden text-sm text-red-600 mt-1 break-words"></p>
       </div>
       <div>
         <label for="category" class="text-sm text-gray-600" data-i18n="category">খাত</label>
@@ -208,11 +209,15 @@
         <label for="note" class="text-sm text-gray-600" data-i18n="note">নোট (ঐচ্ছিক)</label>
         <input id="note" type="text" class="w-full border rounded-lg px-3 py-2.5 mt-1" data-i18n-ph="notePh" placeholder="যেমন: বাজারে মাছ কিনলাম">
       </div>
+      <p id="formError" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 break-words"></p>
       <div class="flex gap-2">
         <button type="submit" class="flex-1 min-w-0 btn-primary rounded-lg py-3 font-bold" data-i18n="save">সংরক্ষণ করুন</button>
         <button type="button" id="cancelEdit" class="hidden bg-gray-200 hover:bg-gray-300 rounded-lg px-4 font-semibold shrink-0" data-i18n="cancel">বাতিল</button>
       </div>
     </form>
+    <!-- A day with no expense and no income (v10.9) — a separate button,
+         not a 0-amount entry (the server still rejects amount 0). -->
+    <button id="zeroDayBtn" type="button" class="hidden w-full mt-3 bg-gray-100 hover:bg-gray-200 rounded-lg py-3 font-semibold text-sm sm:text-base" data-i18n="zeroDayBtn">আজ কোনো খরচ/আয় নেই</button>
   </section>
 
   <!-- Overspend warnings -->

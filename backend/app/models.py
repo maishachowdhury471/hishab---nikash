@@ -52,6 +52,18 @@ class Entry(Base):
     date = Column(Date, nullable=False, index=True)
 
 
+class ZeroDay(Base):
+    """A day the user explicitly marked as having no expense and no
+    income (v10.9) — counts as activity for reminders, so a zero day
+    never triggers a missed-day reminder. One row per user per date."""
+    __tablename__ = "zero_days"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    date = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False)
+
+
 class PushSubscription(Base):
     """One Web Push subscription per device (browser push endpoint)."""
     __tablename__ = "push_subscriptions"

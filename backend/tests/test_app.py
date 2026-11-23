@@ -843,3 +843,117 @@ def test_admin_can_grant_permanent_admin():
     # The newly promoted admin can use the dashboard.
     assert client.get("/api/admin/stats",
                       headers=_h(target["token"])).status_code == 200
+
+# ---------------------------------------------------------------- zero days
+def _zero(day, headers=None):
+    return client.post("/api/zero-days", json={"date": day},
+                       headers=headers if headers is not None else _h())
+
+
+def test_zero_day_create_and_list():
+    r = _zero(TODAY.isoformat())
+    assert r.status_code == 201, r.text
+    assert r.json()["date"] == TODAY.isoformat()
+    days = client.get("/api/zero-days", params={"month": THIS_MONTH},
+                      headers=_h()).json()
+    assert days == [TODAY.isoformat()]
+
+
+def test_zero_day_duplicate_409():
+    assert _zero(TODAY.isoformat()).status_code == 201
+    r = _zero(TODAY.isoformat())
+    assert r.status_code == 409
+
+
+def test_zero_day_rejected_when_entry_exists():
+    _add({"type": "expense", "amount": 100, "category": "bazar",
+          "note": "", "date": TODAY.isoformat()})
+    r = _zero(TODAY.isoformat())
+    assert r.status_code == 409
+
+
+def test_zero_day_future_date_400():
+    r = _zero((TODAY + timedelta(days=1)).isoformat())
+    assert r.status_code == 400
+
+
+def test_zero_day_bad_month_400():
+    r = client.get("/api/zero-days", params={"month": "2026-13"},
+                   headers=_h())
+    assert r.status_code == 400
+
+
+def test_zero_day_delete_and_404():
+    assert _zero(TODAY.isoformat()).status_code == 201
+    r = client.delete(f"/api/zero-days/{TODAY.isoformat()}", headers=_h())
+    assert r.status_code == 200
+    assert r.json()["deleted"] is True
+    days = client.get("/api/zero-days", params={"month": THIS_MONTH},
+                      headers=_h()).json()
+    assert days == []
+    r = client.delete(f"/api/zero-days/{TODAY.isoformat()}", headers=_h())
+    assert r.status_code == 404
+
+
+def test_zero_day_list_only_that_month():
+    _zero((TODAY - timedelta(days=1)).isoformat())
+    _zero(TODAY.isoformat())
+    days = client.get("/api/zero-days", params={"month": THIS_MONTH},
+                      headers=_h()).json()
+    assert (TODAY - timedelta(days=1)).isoformat() in days
+    assert TODAY.isoformat() in days
+    days_last = client.get("/api/zero-days", params={"month": LAST_MONTH},
+                           headers=_h()).json()
+    assert (TODAY - timedelta(days=1)).isoformat() not in days_last
+
+
+def test_zero_day_requires_login():
+    r = client.post("/api/zero-days", json={"date": TODAY.isoformat()})
+    assert r.status_code == 401
+    r = client.get("/api/zero-days", params={"month": THIS_MONTH})
+    assert r.status_code == 401
+
+
+def test_zero_day_is_per_user():
+    other = _make_user("roni")
+    assert _zero(TODAY.isoformat(),
+                 headers=_h(other["token"])).status_code == 201
+    # My own zero day for the same date is still allowed.
+    assert _zero(TODAY.isoformat()).status_code == 201
+    # I cannot delete the other user's zero day.
+    r = client.delete(f"/api/zero-days/{TODAY.isoformat()}",
+                      headers=_h(other["token"]))
+    assert r.status_code == 200  # deletes THEIR row
+    r = client.delete(f"/api/zero-days/{TODAY.isoformat()}", headers=_h())
+    assert r.status_code == 200  # deletes MY row
+    # After both deletes, neither list shows the date.
+    assert client.get("/api/zero-days", params={"month": THIS_MONTH},
+                      headers=_h()).json() == []
+    assert client.get("/api/zero-days", params={"month": THIS_MONTH},
+                      headers=_h(other["token"])).json() == []
+
+
+def test_reminder_status_zero_day_yesterday_not_due():
+    _zero((TODAY - timedelta(days=1)).isoformat())
+    st = client.get("/api/reminders/status", headers=_h()).json()
+    assert st["due"] is False and st["missed_dates"] == []
+    assert st["last_entry_date"] == (TODAY - timedelta(days=1)).isoformat()
+
+
+def test_reminder_status_zero_day_3_days_ago_missed_after():
+    _zero((TODAY - timedelta(days=3)).isoformat())
+    st = client.get("/api/reminders/status", headers=_h()).json()
+    assert st["due"] is True
+    assert st["days_since_last_entry"] == 3
+    assert st["missed_dates"] == [
+        (TODAY - timedelta(days=2)).isoformat(),
+        (TODAY - timedelta(days=1)).isoformat()]
+
+
+def test_reminder_status_zero_day_plus_newer_entry():
+    _zero((TODAY - timedelta(days=3)).isoformat())
+    _add({"type": "income", "amount": 100, "category": "beton",
+          "note": "", "date": TODAY.isoformat()})
+    st = client.get("/api/reminders/status", headers=_h()).json()
+    assert st["due"] is False
+    assert st["last_entry_date"] == TODAY.isoformat()

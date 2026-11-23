@@ -29,6 +29,10 @@ const I18N = {
     addEntry: "নতুন হিসাব যোগ করুন", editEntry: "হিসাব সম্পাদনা করুন",
     amount: "টাকার পরিমাণ (৳)", category: "খাত", date: "তারিখ", note: "নোট (ঐচ্ছিক)",
     notePh: "যেমন: বাজারে মাছ কিনলাম", save: "সংরক্ষণ করুন", cancel: "বাতিল",
+    amountInvalid: "টাকার পরিমাণ ০ বা তার কম হতে পারে না",
+    saveFailedGeneric: "তথ্যটি ঠিক নেই, আবার দেখে নিন",
+    zeroDayBtn: "আজ কোনো খরচ/আয় নেই",
+    zeroDayLabel: "— আজ কোনো খরচ/আয় নেই —",
     dailyList: "এই মাসের হিসাব", emptyList: "এই মাসে এখনো কোনো হিসাব নেই।",
     summaryTitle: "মাসের সারসংক্ষেপ", adviceTitle: "AI পরামর্শ",
     compareTitle: "গত মাসের সাথে তুলনা", colCategory: "খাত", colThis: "এই মাস", colLast: "গত মাস", colDiff: "পার্থক্য",
@@ -117,6 +121,10 @@ const I18N = {
     addEntry: "Add a new entry", editEntry: "Edit entry",
     amount: "Amount (Tk)", category: "Category", date: "Date", note: "Note (optional)",
     notePh: "e.g. Bought fish at the bazar", save: "Save", cancel: "Cancel",
+    amountInvalid: "The amount cannot be 0 or less",
+    saveFailedGeneric: "Something in the entry is not right — please check it again.",
+    zeroDayBtn: "No expense or income today",
+    zeroDayLabel: "— No expense or income today —",
     dailyList: "This month's entries", emptyList: "No entries yet this month.",
     summaryTitle: "Month summary", adviceTitle: "AI Advice",
     compareTitle: "Compare with last month", colCategory: "Category", colThis: "This month", colLast: "Last month", colDiff: "Difference",
@@ -215,6 +223,7 @@ function applyTheme() {
 let curMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 let curType = "expense";
 let entriesCache = [];
+let zeroDaysCache = []; // ISO dates (YYYY-MM-DD) marked "no expense/income" (v10.9)
 
 const $ = (id) => document.getElementById(id);
 const t = (key) => (I18N[lang] && I18N[lang][key]) || I18N.bn[key] || key;
@@ -715,6 +724,7 @@ function logout() {
     localStorage.removeItem("hn-user");
   } catch (e) { /* ignore */ }
   entriesCache = [];
+  zeroDaysCache = [];
   summaryCache = null;
   reminderStatusCache = null;
   reminderHistoryCache = [];
@@ -1098,15 +1108,55 @@ function resetForm() {
   $("cancelEdit").classList.add("hidden");
   $("amount").value = ""; $("note").value = "";
   $("entryDate").value = new Date().toISOString().slice(0, 10);
+  hideFormErrors();
   setType("expense");
 }
 $("cancelEdit").addEventListener("click", resetForm);
 
+/* Entry-save errors (v10.9): the amount-0 case used to reach the user
+   as a raw FastAPI 422 JSON dump in a native alert() — never again.
+   Amount errors show red under the amount field; other save failures
+   show a friendly Bangla line in the form. Both clear on the next
+   valid input. */
+function showAmountError(msg) {
+  const el = $("amountError");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove("hidden");
+}
+function showFormError(msg) {
+  const el = $("formError");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove("hidden");
+}
+function hideFormErrors() {
+  const a = $("amountError"), f = $("formError");
+  if (a) a.classList.add("hidden");
+  if (f) f.classList.add("hidden");
+}
+$("amount").addEventListener("input", () => {
+  // Typing a valid amount clears the red amount error at once.
+  if (parseFloat($("amount").value) > 0) {
+    const el = $("amountError");
+    if (el) el.classList.add("hidden");
+  }
+});
+
 $("entryForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  hideFormErrors();
+  // Red validation, client-side: 0, negative or empty amount never
+  // leaves the phone — no request is sent at all (v10.9).
+  const amt = parseFloat($("amount").value);
+  if (!isFinite(amt) || amt <= 0) {
+    showAmountError(t("amountInvalid"));
+    $("amount").focus();
+    return;
+  }
   const payload = {
     type: curType,
-    amount: parseFloat($("amount").value),
+    amount: amt,
     category: $("category").value,
     note: $("note").value.trim(),
     date: $("entryDate").value,
@@ -1133,7 +1183,17 @@ $("entryForm").addEventListener("submit", async (e) => {
   if (res.status === 401) return; // apiFetch already showed the login screen
   if (!res.ok) {
     if (!isOnline()) { saveEntryOffline(id, payload); return; }
-    alert(await res.text()); return;
+    // Friendly inline error — never raw JSON, never a native alert.
+    // A 422 naming "amount" maps to the same red amount message; any
+    // other server rejection gets the generic line.
+    let isAmountErr = false;
+    try {
+      const body = await res.json();
+      isAmountErr = /amount/.test(JSON.stringify(body && body.detail));
+    } catch (e2) { /* non-JSON body — generic message */ }
+    if (isAmountErr) showAmountError(t("amountInvalid"));
+    else showFormError(t("saveFailedGeneric"));
+    return;
   }
   resetForm();
   loadAll();
@@ -1157,6 +1217,7 @@ function startEdit(entry) {
 /* ---------------- delete modal (custom) ---------------- */
 let pendingDeleteId = null;
 let pendingDeleteEntry = null;
+let pendingDeleteZeroDay = null; // ISO date when deleting a zero-day mark (v10.9)
 function openDeleteModal(entry) {
   pendingDeleteId = entry.id;
   pendingDeleteEntry = entry;
@@ -1174,8 +1235,15 @@ function closeDeleteModal() {
   modal.classList.remove("flex");
   pendingDeleteId = null;
   pendingDeleteEntry = null;
+  pendingDeleteZeroDay = null;
 }
 async function confirmDeleteModal() {
+  if (pendingDeleteZeroDay != null) {
+    const day = pendingDeleteZeroDay;
+    closeDeleteModal();
+    await deleteZeroDayFlow(day);
+    return;
+  }
   if (pendingDeleteId == null) return;
   const id = pendingDeleteId;
   const entry = pendingDeleteEntry;
@@ -1200,6 +1268,125 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("deleteModal").classList.contains("hidden")) closeDeleteModal();
 });
 function deleteEntry(entry) { openDeleteModal(entry); }
+
+/* ---------------- "আজ কোনো খরচ/আয় নেই" (zero day, v10.9) ------------
+   A day with no expense and no income is NOT a 0-amount entry (the
+   server still rejects amount 0) — it is its own record. Marking it
+   counts as activity, so today's reminder stops. */
+function queueZeroDayDelete(day) {
+  const q = loadPendingQueue();
+  if (!q.some((o) => o.op === "zero_day_delete" && o.date === day)) {
+    q.push({ op: "zero_day_delete", date: day });
+    savePendingQueue(q);
+  }
+}
+async function markZeroDay() {
+  if (!getToken()) return;
+  const day = localTodayStr();
+  if (zeroDaysCache.includes(day)) return; // already marked
+  if (entriesCache.some((e) => e.date === day)) return; // has entries
+  // A queued delete for today (marked offline, deleted offline) is
+  // superseded by marking again — drop it instead of queueing both.
+  let queue = loadPendingQueue();
+  if (queue.some((o) => o.op === "zero_day_delete" && o.date === day)) {
+    queue = queue.filter((o) => !(o.op === "zero_day_delete" && o.date === day));
+    savePendingQueue(queue);
+  }
+  const applyLocal = () => {
+    if (!zeroDaysCache.includes(day)) zeroDaysCache.push(day);
+    saveZeroDaysCache(curMonth, zeroDaysCache);
+    updateLastActivityDate();
+    renderAll();
+    updateOfflineBanner();
+    checkReminders();
+    cancelLocalReminder(); // today is done — no 09:00 reminder for it
+  };
+  if (!isOnline()) {
+    queue.push({ op: "zero_day", date: day });
+    savePendingQueue(queue);
+    applyLocal();
+    flushPendingQueue(); // no-op offline, harmless
+    return;
+  }
+  try {
+    const res = await apiFetch("/api/zero-days", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: day }),
+    });
+    if (res.status === 401) return;
+    if (res.status === 409) { await loadAll(); return; } // already marked / entries exist
+    if (!res.ok) {
+      if (!isOnline()) {
+        queue.push({ op: "zero_day", date: day });
+        savePendingQueue(queue);
+        applyLocal();
+      } else {
+        showFormError(t("saveFailedGeneric"));
+      }
+      return;
+    }
+    applyLocal();
+    flushPendingQueue();
+  } catch (err) {
+    // Network throw = offline → queue it (v10.3 pattern).
+    const q = loadPendingQueue();
+    q.push({ op: "zero_day", date: day });
+    savePendingQueue(q);
+    applyLocal();
+    flushPendingQueue();
+  }
+}
+$("zeroDayBtn").addEventListener("click", markZeroDay);
+function openZeroDayDeleteModal(day) {
+  pendingDeleteZeroDay = day;
+  const box = $("deleteModalEntry");
+  box.innerHTML = `<div class="font-semibold">${t("zeroDayLabel")}</div>`
+    + `<div class="font-bold mt-1">${fmtDate(day)}</div>`;
+  const modal = $("deleteModal");
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+  $("deleteModalCancel").focus();
+}
+async function deleteZeroDayFlow(day) {
+  if (!getToken()) return;
+  const queue = loadPendingQueue();
+  let removed = false;
+  const qi = queue.findIndex((o) => o.op === "zero_day" && o.date === day);
+  if (qi !== -1) {
+    // The zero day only exists in the queue (marked offline, never
+    // synced) — drop its queued create instead of deleting on the server.
+    queue.splice(qi, 1);
+    savePendingQueue(queue);
+    removed = true;
+  } else if (!isOnline()) {
+    queueZeroDayDelete(day);
+    removed = true;
+  } else {
+    try {
+      const res = await apiFetch(`/api/zero-days/${day}`, { method: "DELETE" });
+      if (res.status === 401) return;
+      if (res.ok || res.status === 404) removed = true; // 404 = already gone
+      else if (!isOnline()) { queueZeroDayDelete(day); removed = true; }
+      // Other online failures (5xx): keep the marker — it reappears on reload.
+    } catch (err) {
+      queueZeroDayDelete(day);
+      removed = true;
+    }
+  }
+  if (!removed) return;
+  zeroDaysCache = zeroDaysCache.filter((d) => d !== day);
+  saveZeroDaysCache(curMonth, zeroDaysCache);
+  // The deleted day may have been the stored newest activity — if so,
+  // recompute it, or hasEntryToday() stays wrongly true (v10.9).
+  try {
+    if (localStorage.getItem("hn-last-entry-date") === day) recomputeLastActivityDate();
+  } catch (e) { /* ignore */ }
+  renderAll();
+  updateOfflineBanner();
+  checkReminders();
+  scheduleLocalReminder(); // today may need its 09:00 reminder again
+  flushPendingQueue();
+}
 
 /* ---------------- AI quick entry ---------------- */
 async function parseQuick(text) {
@@ -1275,15 +1462,30 @@ function renderAll() {
   renderList();
   renderSummary();
   renderReminderSection();
+  updateZeroDayBtn();
+}
+/* The "আজ কোনো খরচ/আয় নেই" button (v10.9): only for TODAY, only
+   while today has neither entries nor a zero-day mark yet. */
+function updateZeroDayBtn() {
+  const btn = $("zeroDayBtn");
+  if (!btn) return;
+  const today = localTodayStr();
+  const show = curMonth === today.slice(0, 7)
+    && !entriesCache.some((e) => e.date === today)
+    && !zeroDaysCache.includes(today);
+  btn.classList.toggle("hidden", !show);
 }
 function renderList() {
   const list = $("entryList");
   list.innerHTML = "";
-  $("emptyList").classList.toggle("hidden", entriesCache.length > 0);
+  $("emptyList").classList.toggle("hidden",
+    entriesCache.length > 0 || zeroDaysCache.length > 0);
   const byDay = {};
   entriesCache.forEach((e) => { (byDay[e.date] = byDay[e.date] || []).push(e); });
-  Object.keys(byDay).sort().reverse().forEach((day) => {
-    const rows = byDay[day];
+  const days = [...new Set([...Object.keys(byDay), ...zeroDaysCache])]
+    .sort().reverse();
+  days.forEach((day) => {
+    const rows = byDay[day] || [];
     const dayInc = rows.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
     const dayExp = rows.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0);
     const head = document.createElement("div");
@@ -1307,6 +1509,25 @@ function renderList() {
       row.querySelector('[data-act="del"]').addEventListener("click", () => deleteEntry(e));
       list.appendChild(row);
     });
+    // A zero day with no entries shows its own marker row (v10.9) —
+    // once entries exist that day the day is no longer "no expense",
+    // so the marker is not shown. A not-yet-synced zero day carries
+    // the same "pending" tag as a queued entry.
+    if (zeroDaysCache.includes(day) && rows.length === 0) {
+      const pending = loadPendingQueue().some(
+        (o) => o.op === "zero_day" && o.date === day);
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between py-2 gap-2";
+      row.innerHTML = `
+        <div class="min-w-0 flex-1">
+          <div class="font-medium text-gray-500 break-words">${t("zeroDayLabel")}${pending ? ` <span class="inline-block align-middle text-[11px] font-semibold bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 whitespace-nowrap">${t("pendingTag")}</span>` : ""}</div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button class="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-3 py-2 min-h-[40px]" data-act="delZero">${t("del")}</button>
+        </div>`;
+      row.querySelector('[data-act="delZero"]').addEventListener("click", () => openZeroDayDeleteModal(day));
+      list.appendChild(row);
+    }
   });
 }
 function escapeHtml(s) {
@@ -1392,17 +1613,20 @@ async function loadAll() {
   $("monthLabel").textContent = monthLabel(curMonth);
   $("monthInput").value = curMonth;
   try {
-    const [eRes, sRes] = await Promise.all([
+    const [eRes, sRes, zRes] = await Promise.all([
       apiFetch(`/api/entries?month=${curMonth}`),
       apiFetch(`/api/summary?month=${curMonth}&lang=${lang}`),
+      apiFetch(`/api/zero-days?month=${curMonth}`),
     ]);
     entriesCache = eRes.ok ? await eRes.json() : [];
     summaryCache = sRes.ok ? await sRes.json() : null;
+    zeroDaysCache = zRes.ok ? await zRes.json() : [];
     if (eRes.ok && sRes.ok) {
       // Online and fresh: server is the source of truth. Layer this
       // month's not-yet-synced ops back on top (v10.3), then cache.
       mergePendingIntoCache();
       saveMonthCache(curMonth, entriesCache, summaryCache);
+      saveZeroDaysCache(curMonth, zeroDaysCache);
     }
   } catch (e) {
     // Network throw (offline): fall back to the last-loaded month data.
@@ -1415,20 +1639,54 @@ async function loadAll() {
       entriesCache = [];
       summaryCache = null;
     }
+    zeroDaysCache = loadZeroDaysCache(curMonth);
     // Pending ops for this month still apply on top of the cached data.
     mergePendingIntoCache();
   }
-  // Remember the newest entry date on this device so the missed-days
-  // card can work fully offline (status API refines it when online).
-  if (entriesCache.length) {
-    const maxDate = entriesCache.reduce((m, e) => (e.date > m ? e.date : m), entriesCache[0].date);
-    try {
-      const stored = localStorage.getItem("hn-last-entry-date");
-      if (!stored || maxDate > stored) localStorage.setItem("hn-last-entry-date", maxDate);
-    } catch (e) { /* ignore */ }
-  }
+  updateLastActivityDate();
   scheduleLocalReminder(); // APK: (re)create the daily 09:00 local reminder
   renderAll();
+}
+/* Zero-day month cache (v10.9) — same pattern as the entries cache, so
+   the marker row and the "today is done" state survive offline. */
+function saveZeroDaysCache(month, dates) {
+  try { localStorage.setItem(monthCacheKey("zerodays", month), JSON.stringify(dates || [])); } catch (e) { /* ignore */ }
+}
+function loadZeroDaysCache(month) {
+  try {
+    const raw = localStorage.getItem(monthCacheKey("zerodays", month));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+function updateLastActivityDate() {
+  // The newest activity date on this device (entries + zero days) so
+  // the missed-days card can work fully offline (status API refines it
+  // when online). Only ever raised here — the server's status response
+  // (via checkReminders) is the one that can move it back.
+  const dates = entriesCache.map((e) => e.date).concat(zeroDaysCache);
+  if (!dates.length) return;
+  const maxDate = dates.reduce((m, d) => (d > m ? d : m), dates[0]);
+  try {
+    const stored = localStorage.getItem("hn-last-entry-date");
+    if (!stored || maxDate > stored) localStorage.setItem("hn-last-entry-date", maxDate);
+  } catch (e) { /* ignore */ }
+}
+function recomputeLastActivityDate() {
+  // After deleting the newest activity (v10.9): the stored date may
+  // point at a day with no activity any more, so hasEntryToday() would
+  // wrongly stay true and the button would never come back. Recompute
+  // from what this device knows (this month's entries + zero days);
+  // with nothing left, drop the key — the server's status response
+  // (checkReminders, online) restores the true date on the next check.
+  const dates = entriesCache.map((e) => e.date).concat(zeroDaysCache);
+  try {
+    if (!dates.length) localStorage.removeItem("hn-last-entry-date");
+    else {
+      const maxDate = dates.reduce((m, d) => (d > m ? d : m), dates[0]);
+      localStorage.setItem("hn-last-entry-date", maxDate);
+    }
+  } catch (e) { /* ignore */ }
 }
 
 /* ---------------- offline-first (v10.3) ------------
@@ -1488,6 +1746,9 @@ function opAffectsMonth(op, month) {
     return false;
   }
   if (op.op === "delete") return !!(op.date && op.date.slice(0, 7) === month);
+  if (op.op === "zero_day" || op.op === "zero_day_delete") {
+    return !!(op.date && op.date.slice(0, 7) === month);
+  }
   return false;
 }
 function pendingAffectsMonth(month) {
@@ -1562,6 +1823,16 @@ function mergePendingIntoCache() {
       const before = entriesCache.length;
       entriesCache = entriesCache.filter((x) => String(x.id) !== String(op.id));
       if (entriesCache.length !== before) changed = true;
+    } else if (op.op === "zero_day") {
+      if (!zeroDaysCache.includes(op.date)) {
+        zeroDaysCache.push(op.date);
+        changed = true;
+      }
+    } else if (op.op === "zero_day_delete") {
+      if (zeroDaysCache.includes(op.date)) {
+        zeroDaysCache = zeroDaysCache.filter((d) => d !== op.date);
+        changed = true;
+      }
     }
   });
   if (changed) { sortEntriesCache(); refreshLocalSummary(); }
@@ -1697,6 +1968,27 @@ async function flushPendingQueue() {
           queue.shift();
         } else if (op.op === "delete") {
           const res = await apiFetch(`/api/entries/${op.id}`, { method: "DELETE" });
+          if (res.status === 401) return;
+          if (!res.ok) {
+            if (res.status >= 400 && res.status < 500) { queue.shift(); savePendingQueue(queue); continue; }
+            return;
+          }
+          queue.shift();
+        } else if (op.op === "zero_day") {
+          // A zero day marked offline (v10.9). A 409 means the server
+          // already has it (or entries exist that day) — drop the op.
+          const res = await apiFetch("/api/zero-days", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date: op.date }),
+          });
+          if (res.status === 401) return;
+          if (!res.ok) {
+            if (res.status >= 400 && res.status < 500) { queue.shift(); savePendingQueue(queue); continue; }
+            return; // 5xx — stop, retry later
+          }
+          queue.shift();
+        } else if (op.op === "zero_day_delete") {
+          const res = await apiFetch(`/api/zero-days/${op.date}`, { method: "DELETE" });
           if (res.status === 401) return;
           if (!res.ok) {
             if (res.status >= 400 && res.status < 500) { queue.shift(); savePendingQueue(queue); continue; }
@@ -1963,6 +2255,7 @@ function localTodayStr() {
 function hasEntryToday() {
   const today = localTodayStr();
   if (entriesCache.some((e) => e.date === today)) return true;
+  if (zeroDaysCache.includes(today)) return true;
   try { return localStorage.getItem("hn-last-entry-date") === today; } catch (e) { return false; }
 }
 async function scheduleLocalReminder() {

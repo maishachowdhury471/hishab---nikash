@@ -25,7 +25,7 @@ import os
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from .models import Entry, PushSubscription, ReminderLog
+from .models import Entry, PushSubscription, ReminderLog, ZeroDay
 
 try:
     from pywebpush import Vapid, WebPushException, webpush
@@ -84,11 +84,19 @@ def compute_status(db, user_id=None, now=None):
     if user_id is not None:
         q = q.filter(Entry.user_id == user_id)
     row = q.order_by(Entry.date.desc()).first()
-    if row is None:
+    # A zero day (v10.9 — "আজ কোনো খরচ/আয় নেই") is activity too: the
+    # last activity is the newest of the last entry and the last zero day.
+    zq = db.query(ZeroDay.date)
+    if user_id is not None:
+        zq = zq.filter(ZeroDay.user_id == user_id)
+    zrow = zq.order_by(ZeroDay.date.desc()).first()
+    candidates = [d for d in ((row[0] if row else None),
+                              (zrow[0] if zrow else None)) if d is not None]
+    if not candidates:
         return {"last_entry_date": None, "days_since_last_entry": None,
                 "missed_dates": [], "missed_count": 0, "due": False,
                 "due_at": None, "next_due_at": None}
-    last = row[0]
+    last = max(candidates)
     days_since = (today - last).days
     missed = []
     d = last + timedelta(days=1)

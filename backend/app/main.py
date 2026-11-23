@@ -12,6 +12,10 @@ API (prefix /api):
   POST   /api/entries                     (auth)
   PUT    /api/entries/{id}                (auth — 404 if it is not yours)
   DELETE /api/entries/{id}                (auth — 404 if it is not yours)
+  POST   /api/zero-days                   (auth — mark a day with no
+                                           expense and no income)
+  GET    /api/zero-days?month=YYYY-MM     (auth — your zero days)
+  DELETE /api/zero-days/{date}            (auth — 404 if it is not yours)
   GET    /api/summary?month=YYYY-MM&lang=bn|en   (auth — only your data)
   POST   /api/parse                       (public, stateless parsing)
   GET    /api/config                      (public: VAPID public key / push status / Google)
@@ -42,7 +46,7 @@ from . import admin as adminmod
 from . import auth as authmod
 from .advice import generate_advice
 from .database import Base, SessionLocal, engine, ensure_schema, get_db
-from .models import Entry, PushSubscription, ReminderLog, User
+from .models import Entry, PushSubscription, ReminderLog, User, ZeroDay
 from .parser import parse_text
 from . import reminders as rem
 
@@ -327,6 +331,69 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db),
     db.delete(e)
     db.commit()
     return {"deleted": True, "id": entry_id}
+
+
+# ---------------------------------------------------------------- zero days
+class ZeroDayIn(BaseModel):
+    date: date
+
+
+@app.post("/api/zero-days", status_code=201)
+def create_zero_day(payload: ZeroDayIn, db: Session = Depends(get_db),
+                    user: User = Depends(authmod.get_current_user)):
+    """Mark a day as having NO expense and NO income (v10.9 — the
+    "আজ কোনো খরচ/আয় নেই" button). A zero day counts as activity for
+    reminders, so it never triggers a missed-day reminder. Rejected when
+    the date is in the future, when the user already has an entry that
+    day, or when the day is already marked (both 409)."""
+    d = payload.date
+    if d > rem.today_dhaka():
+        raise HTTPException(status_code=400,
+                            detail="date cannot be in the future")
+    if db.query(Entry).filter(Entry.user_id == user.id,
+                              Entry.date == d).first():
+        raise HTTPException(
+            status_code=409,
+            detail="entries already exist for this date")
+    if db.query(ZeroDay).filter(ZeroDay.user_id == user.id,
+                                ZeroDay.date == d).first():
+        raise HTTPException(
+            status_code=409,
+            detail="zero day already recorded for this date")
+    row = ZeroDay(user_id=user.id, date=d, created_at=rem.now_dhaka())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"date": row.date.isoformat()}
+
+
+@app.get("/api/zero-days")
+def list_zero_days(month: str, db: Session = Depends(get_db),
+                   user: User = Depends(authmod.get_current_user)):
+    year, mon = _parse_month(month)
+    first, last = _month_bounds(year, mon)
+    rows = (db.query(ZeroDay)
+            .filter(ZeroDay.user_id == user.id,
+                    ZeroDay.date >= first, ZeroDay.date <= last)
+            .order_by(ZeroDay.date).all())
+    return [r.date.isoformat() for r in rows]
+
+
+@app.delete("/api/zero-days/{day}")
+def delete_zero_day(day: str, db: Session = Depends(get_db),
+                    user: User = Depends(authmod.get_current_user)):
+    try:
+        d = date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail="date must be YYYY-MM-DD")
+    row = db.query(ZeroDay).filter(ZeroDay.user_id == user.id,
+                                   ZeroDay.date == d).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="zero day not found")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True, "date": d.isoformat()}
 
 
 @app.post("/api/parse")
