@@ -1146,8 +1146,11 @@ async function applyRoleChange(userId, btn) {
 /* ---------------- language ---------------- */
 function applyLang() {
   document.documentElement.lang = lang === "bn" ? "bn" : "en";
-  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+  // Never write a raw key into the UI: when the page is new but the JS is
+  // still the cached old one (slow network), an unknown key must keep the
+  // element's own static text instead of showing e.g. "maintLoginBtn" (v10.14).
+  document.querySelectorAll("[data-i18n]").forEach((el) => { const k = el.dataset.i18n; const v = (I18N[lang] && I18N[lang][k]) || I18N.bn[k]; if (v) el.textContent = v; });
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => { const k = el.dataset.i18nPh; const v = (I18N[lang] && I18N[lang][k]) || I18N.bn[k]; if (v) el.placeholder = v; });
   $("langToggle").textContent = lang === "bn" ? "EN" : "বাং";
   // Icon-only AI buttons: keep their accessible labels in sync with language.
   $("aiParseBtn").setAttribute("aria-label", t("parseBtnLabel"));
