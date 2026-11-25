@@ -151,6 +151,11 @@
     <h2 class="font-bold text-xl mt-3" data-i18n="maintScreenTitle">রক্ষণাবেক্ষণ চলছে</h2>
     <p id="maintScreenMsg" class="text-sm text-gray-500 mt-2 break-words"></p>
     <p class="text-sm text-gray-400 mt-4" data-i18n="tryLater">পরে আবার চেষ্টা করুন।</p>
+    <!-- Admin way back in (v10.13): without this, turning maintenance on
+         and then logging out locked even the admin out — the screen had
+         no login button at all. Staff land straight in after login;
+         everyone else lands back on this screen. -->
+    <button id="maintLoginBtn" type="button" class="btn-primary rounded-lg px-4 py-2.5 font-bold mt-4" data-i18n="maintLoginBtn">অ্যাডমিন লগইন</button>
   </section>
 </div>
 

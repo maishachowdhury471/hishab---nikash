@@ -95,6 +95,7 @@ const I18N = {
     maintBanner: "⚠️ রক্ষণাবেক্ষণ মোড চালু আছে — সাধারণ ব্যবহারকারীরা এখন অ্যাপ ব্যবহার করতে পারছেন না।",
     maintScreenTitle: "রক্ষণাবেক্ষণ চলছে",
     tryLater: "পরে আবার চেষ্টা করুন।",
+    maintLoginBtn: "অ্যাডমিন লগইন",
     adminUsersTitle: "ব্যবহারকারী",
     adminSearchPh: "নাম বা ইমেইল খুঁজুন…",
     roleOnlyAdmin: "শুধু মূল অ্যাডমিনই রোল বদলাতে পারেন।",
@@ -191,6 +192,7 @@ const I18N = {
     maintBanner: "⚠️ Maintenance mode is on — normal users cannot use the app right now.",
     maintScreenTitle: "Under maintenance",
     tryLater: "Please try again later.",
+    maintLoginBtn: "Admin login",
     adminUsersTitle: "Users",
     adminSearchPh: "Search by name or email…",
     roleOnlyAdmin: "Only the main admin can change roles.",
@@ -508,6 +510,17 @@ function showMaintenanceScreen(msg) {
   $("maintScreenMsg").textContent = msg || "";
   $("maintenanceScreen").classList.remove("hidden");
 }
+
+/* Maintenance lockout fix (v10.13): the maintenance screen had no login
+   button, so turning maintenance on and then logging out left the admin
+   herself with no way back in — and the app down for everyone until the
+   mode was turned off, which itself needed a login. This opens the login
+   screen and renders Google sign-in on demand (initGoogle skips it
+   while maintenance shows at boot). */
+function openAdminLogin() {
+  showAuth();
+  initGoogle(true);
+}
 function afterLogin(data) {
   // Success path for Google sign-in.
   currentUser = data.user;
@@ -711,17 +724,22 @@ async function initNativeGoogle(cfg) {
   $("nativeGoogleBtn").onclick = onNativeGoogleSignIn;
   return true;
 }
-async function initGoogle() {
+async function initGoogle(forceLogin) {
   let cfg = {};
   try {
     const res = await fetch(apiBase() + "/api/config");
     if (res.ok) { cfg = await res.json(); siteCfg = cfg; }
   } catch (e) { /* offline — Google stays hidden */ }
   // Maintenance screen already showing (decided by initAuth, which runs
-  // first) → do not touch the login screen at all.
-  if (!$("maintenanceScreen").classList.contains("hidden")) return;
+  // first) → do not touch the login screen at all — unless the admin
+  // explicitly asked to log in from that screen (v10.13: turning
+  // maintenance on then logging out left no way back in at all).
+  if (!forceLogin && !$("maintenanceScreen").classList.contains("hidden")) return;
   // Maintenance mode and not staff → maintenance screen, not login.
-  if (cfg.maintenance_mode && !isStaffUser()) {
+  // Skipped on an explicit admin login: staff land in the app after
+  // signing in, everyone else lands back on the maintenance screen
+  // (afterLogin enforces that).
+  if (!forceLogin && cfg.maintenance_mode && !isStaffUser()) {
     showMaintenanceScreen(cfg.maintenance_message || "");
     return;
   }
@@ -780,6 +798,7 @@ async function initGoogle() {
     });
     $("googleBox").classList.remove("hidden");
     const slot = $("googleBtnSlot");
+    slot.innerHTML = ""; // initGoogle may run twice (boot + admin login) — never render two buttons
     window.google.accounts.id.renderButton(slot, {
       theme: "outline", size: "large", shape: "rectangular",
       width: Math.max(240, Math.min(360, slot.clientWidth || 320)),
@@ -2603,6 +2622,7 @@ $("profileLogoutBtn").addEventListener("click", () => logout());
 $("settingsBackBtn").addEventListener("click", closeSettings);
 $("settingsAdminBtn").addEventListener("click", openAdmin);
 $("themeSettingBtn").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
+$("maintLoginBtn").addEventListener("click", openAdminLogin);
 document.addEventListener("click", (ev) => {
   const dd = $("profileDropdown");
   if (dd && !dd.classList.contains("hidden") && !ev.target.closest("#profileWrap")) closeProfileDropdown();
