@@ -549,12 +549,12 @@ def test_reminder_status_is_per_user():
 
 
 # ---------------------------------------------------------------- Google sign-in
-def _fake_google(sub="google-123", email="ronitest@example.com"):
+def _fake_google(sub="google-123", email="ronitest@example.com", picture=""):
     """A fake Google token verifier for tests (the real one calls Google)."""
     def _verify(token):
         assert token == "fake-google-id-token"
         return {"sub": sub, "email": email, "email_verified": True,
-                "name": "Roni Test", "picture": ""}
+                "name": "Roni Test", "picture": picture}
     return _verify
 
 
@@ -575,8 +575,34 @@ def test_google_new_user_created(monkeypatch):
     assert d["user"]["username"] == "ronitest"
     assert d["user"]["provider"] == "google"
     assert d["user"]["email"] == "ronitest@example.com"
+    assert d["user"]["picture"] is None  # fake token carries no photo
     me = client.get("/api/auth/me", headers=_h(d["token"])).json()
     assert me["user"]["username"] == "ronitest"
+
+
+def test_google_picture_saved_and_returned(monkeypatch):
+    # v10.11: the Google profile photo ("picture" claim) is stored on
+    # the user and returned by login + /api/auth/me, so the header can
+    # show it as the profile avatar. A changed photo is picked up at
+    # the next sign-in; an account without a photo gets picture None.
+    from backend.app import auth as authmod
+    pic1 = "https://example.com/pic1.jpg"
+    monkeypatch.setattr(authmod, "verify_google_token",
+                        _fake_google(picture=pic1))
+    r = client.post("/api/auth/google",
+                    json={"id_token": "fake-google-id-token"})
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["picture"] == pic1
+    me = client.get("/api/auth/me", headers=_h(r.json()["token"])).json()
+    assert me["user"]["picture"] == pic1
+    # Re-login with a new photo updates the stored picture.
+    pic2 = "https://example.com/pic2.jpg"
+    monkeypatch.setattr(authmod, "verify_google_token",
+                        _fake_google(picture=pic2))
+    r2 = client.post("/api/auth/google",
+                     json={"id_token": "fake-google-id-token"})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["user"]["picture"] == pic2
 
 
 def test_google_signin_again_no_duplicate(monkeypatch):

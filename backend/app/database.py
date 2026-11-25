@@ -47,6 +47,7 @@ def ensure_schema():
         "push_subscriptions": [("user_id", "INTEGER")],
         "reminder_logs": [("user_id", "INTEGER")],
         "users": [("email", "VARCHAR"), ("google_sub", "VARCHAR"),
+                  ("picture", "VARCHAR"),
                   ("auth_provider", "VARCHAR"),
                   ("role", "VARCHAR"), ("support_until", "TIMESTAMP"),
                   ("last_login_at", "TIMESTAMP")],

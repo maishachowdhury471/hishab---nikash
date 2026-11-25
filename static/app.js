@@ -78,6 +78,10 @@ const I18N = {
     authGoogleErr: "Google লগইন করা যায়নি, আবার চেষ্টা করুন।",
     authGoogleNative: "Google দিয়ে লগইন",
     logout: "লগআউট", loggedInAs: "লগইন:",
+    settings: "সেটিংস", settingsTitle: "⚙️ সেটিংস", themeTitle: "থিম",
+    darkMode: "ডার্ক মোড", lightMode: "লাইট মোড",
+    settingsAdminHint: "অ্যাডমিন ড্যাশবোর্ড খুলুন — পরিসংখ্যান, ব্যবহারকারী ও রক্ষণাবেক্ষণ।",
+    profileLabel: "প্রোফাইল",
     adminBtnLabel: "অ্যাডমিন", adminTitle: "🛡️ অ্যাডমিন ড্যাশবোর্ড",
     adminBack: "ফিরে যাও", adminStatsTitle: "পরিসংখ্যান",
     statTotalUsers: "মোট ইউজার", statNewUsers: "নতুন (৭ দিন)",
@@ -170,6 +174,10 @@ const I18N = {
     authGoogleErr: "Google sign-in failed, please try again.",
     authGoogleNative: "Sign in with Google",
     logout: "Log out", loggedInAs: "Logged in:",
+    settings: "Settings", settingsTitle: "⚙️ Settings", themeTitle: "Theme",
+    darkMode: "Dark mode", lightMode: "Light mode",
+    settingsAdminHint: "Open the admin dashboard — stats, users and maintenance.",
+    profileLabel: "Profile",
     adminBtnLabel: "Admin", adminTitle: "🛡️ Admin Dashboard",
     adminBack: "Back", adminStatsTitle: "Statistics",
     statTotalUsers: "Total users", statNewUsers: "New (7 days)",
@@ -210,11 +218,14 @@ let theme = localStorage.getItem("hn-theme") || (window.matchMedia && window.mat
 function applyTheme() {
   const dark = theme === "dark";
   document.documentElement.classList.toggle("dark", dark);
-  const btn = $("themeToggle");
-  if (btn) {
-    btn.textContent = dark ? "☀️" : "🌙";
-    btn.setAttribute("aria-label", t(dark ? "themeLightLabel" : "themeDarkLabel"));
-    btn.setAttribute("title", t(dark ? "themeLightLabel" : "themeDarkLabel"));
+  // Theme lives in Settings now (v10.11) — the header moon button is gone.
+  const tbtn = $("themeSettingBtn");
+  if (tbtn) {
+    const lbl = $("themeSettingLabel");
+    if (lbl) lbl.textContent = (dark ? "☀️ " : "🌙 ") + t(dark ? "themeLightLabel" : "themeDarkLabel");
+    const st = $("themeSettingState");
+    if (st) st.textContent = t(dark ? "darkMode" : "lightMode");
+    tbtn.setAttribute("aria-label", t(dark ? "themeLightLabel" : "themeDarkLabel"));
   }
   try { localStorage.setItem("hn-theme", theme); } catch (e) { /* ignore */ }
   const meta = document.querySelector('meta[name="theme-color"]');
@@ -326,8 +337,9 @@ function showAuth() {
   $("appMain").classList.add("hidden");
   $("adminScreen").classList.add("hidden");
   $("maintenanceScreen").classList.add("hidden");
-  $("logoutBtn").classList.add("hidden");
-  $("adminBtn").classList.add("hidden");
+  $("profileBtn").classList.add("hidden");
+  closeProfileDropdown();
+  $("settingsScreen").classList.add("hidden");
   $("loggedInLine").classList.add("hidden");
 }
 function showApp() {
@@ -335,9 +347,10 @@ function showApp() {
   $("adminScreen").classList.add("hidden");
   $("maintenanceScreen").classList.add("hidden");
   $("appMain").classList.remove("hidden");
-  $("logoutBtn").classList.remove("hidden");
+  $("settingsScreen").classList.add("hidden");
   $("loggedInLine").classList.remove("hidden");
   $("loggedInUser").textContent = currentUser ? currentUser.username : "";
+  renderProfile();
   updateAdminUI();
 }
 
@@ -406,8 +419,9 @@ function roleBadgeText(u) {
   return "";
 }
 function updateAdminUI() {
-  const btn = $("adminBtn");
-  if (btn) btn.classList.toggle("hidden", !isStaffUser());
+  // Admin entry lives inside Settings now (v10.11) — staff only.
+  const sec = $("settingsAdminSection");
+  if (sec) sec.classList.toggle("hidden", !isStaffUser());
   const badge = $("roleBadge");
   if (badge) {
     const txt = roleBadgeText(currentUser);
@@ -423,12 +437,73 @@ function updateMaintBanner() {
   b.classList.toggle("hidden", !on);
   if (on) $("maintBannerMsg").textContent = siteCfg.maintenance_message || "";
 }
+
+/* ---------------- profile menu + settings (v10.11) ------------
+   The header's 🚪 logout button is now the profile avatar: the
+   Google photo when the account has one, else an initial letter.
+   Its menu holds Settings (theme + admin dashboard) and Log out.
+   The footer keeps only username + role — logout moved here. */
+function profileInitial() {
+  const src = (currentUser && (currentUser.username || currentUser.email)) || "?";
+  return (src.trim().charAt(0) || "?").toUpperCase();
+}
+function setAvatarPair(img, ini, pic) {
+  if (!img || !ini) return;
+  if (pic) {
+    // A failed photo (offline, removed photo) falls back to the letter.
+    img.onerror = () => { img.classList.add("hidden"); ini.classList.remove("hidden"); };
+    img.src = pic;
+    img.classList.remove("hidden");
+    ini.classList.add("hidden");
+  } else {
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    ini.textContent = profileInitial();
+    ini.classList.remove("hidden");
+  }
+}
+function renderProfile() {
+  const btn = $("profileBtn");
+  if (!btn) return;
+  btn.classList.toggle("hidden", !currentUser);
+  const pic = currentUser && currentUser.picture;
+  setAvatarPair($("profileImg"), $("profileInitial"), pic);
+  setAvatarPair($("profileImgSmall"), $("profileInitialSmall"), pic);
+  const nm = $("profileDropName"), em = $("profileDropEmail");
+  if (nm) nm.textContent = currentUser ? (currentUser.username || "") : "";
+  if (em) em.textContent = currentUser ? (currentUser.email || "") : "";
+}
+function closeProfileDropdown() {
+  const dd = $("profileDropdown");
+  if (dd) dd.classList.add("hidden");
+}
+function toggleProfileDropdown() {
+  const dd = $("profileDropdown");
+  if (!dd) return;
+  renderProfile();
+  dd.classList.toggle("hidden");
+}
+function openSettings() {
+  closeProfileDropdown();
+  $("appMain").classList.add("hidden");
+  $("authScreen").classList.add("hidden");
+  $("adminScreen").classList.add("hidden");
+  $("maintenanceScreen").classList.add("hidden");
+  $("settingsScreen").classList.remove("hidden");
+  applyTheme(); // refresh the theme button label/state
+  window.scrollTo(0, 0);
+}
+function closeSettings() {
+  $("settingsScreen").classList.add("hidden");
+  showApp();
+}
 function showMaintenanceScreen(msg) {
   $("authScreen").classList.add("hidden");
   $("appMain").classList.add("hidden");
   $("adminScreen").classList.add("hidden");
-  $("logoutBtn").classList.add("hidden");
-  $("adminBtn").classList.add("hidden");
+  $("profileBtn").classList.add("hidden");
+  closeProfileDropdown();
+  $("settingsScreen").classList.add("hidden");
   $("loggedInLine").classList.add("hidden");
   $("maintScreenMsg").textContent = msg || "";
   $("maintenanceScreen").classList.remove("hidden");
@@ -716,6 +791,8 @@ async function initGoogle() {
 }
 function logout() {
   currentUser = null;
+  closeProfileDropdown();
+  $("settingsScreen").classList.add("hidden");
   // Best effort: also sign out of native Google inside the APK, so the
   // next sign-in shows the account chooser again. Never block logout.
   try {
@@ -785,7 +862,7 @@ async function initAuth() {
     // token by then, so getToken() is null and we show the login screen.
     if (getToken()) {
       // Offline: reuse the role the server last returned for this login,
-      // so a staff user still sees the 🛡️ button and can open admin.
+      // so a staff user still finds the admin entry inside Settings.
       try { currentUser = loadCachedUser() || { username: localStorage.getItem("hn-username") || "", role: "user" }; } catch (e2) { currentUser = { username: "", role: "user" }; }
       showApp();
       postTokenToSW();
@@ -1058,13 +1135,17 @@ function applyLang() {
   $("aiParseBtn").setAttribute("title", t("parseBtnLabel"));
   $("micBtn").setAttribute("aria-label", t("micLabel"));
   $("micBtn").setAttribute("title", t("micLabel"));
-  $("adminBtn").setAttribute("aria-label", t("adminBtnLabel"));
-  $("adminBtn").setAttribute("title", t("adminBtnLabel"));
+  const sbtn = $("settingsAdminBtn");
+  if (sbtn) {
+    sbtn.setAttribute("aria-label", t("adminBtnLabel"));
+    sbtn.setAttribute("title", t("adminBtnLabel"));
+  }
   applyTheme();
   localStorage.setItem("hn-lang", lang);
   fillCategoryOptions();
   renderAll();
   updateAdminUI();
+  renderProfile();
   updateOfflineBanner();
   if (!$("adminScreen").classList.contains("hidden")) {
     if (adminSettingsCache) renderAdminSettings(adminSettingsCache);
@@ -1072,7 +1153,6 @@ function applyLang() {
   }
 }
 $("langToggle").addEventListener("click", () => { lang = lang === "bn" ? "en" : "bn"; applyLang(); });
-$("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
 
 /* ---------------- month ---------------- */
 function shiftMonth(delta) {
@@ -2516,12 +2596,19 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Logout wiring.
-$("logoutBtn").addEventListener("click", () => logout());
-$("logoutLink").addEventListener("click", () => logout());
+// Profile menu + settings wiring (v10.11).
+$("profileBtn").addEventListener("click", (ev) => { ev.stopPropagation(); toggleProfileDropdown(); });
+$("profileSettingsBtn").addEventListener("click", openSettings);
+$("profileLogoutBtn").addEventListener("click", () => logout());
+$("settingsBackBtn").addEventListener("click", closeSettings);
+$("settingsAdminBtn").addEventListener("click", openAdmin);
+$("themeSettingBtn").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(); });
+document.addEventListener("click", (ev) => {
+  const dd = $("profileDropdown");
+  if (dd && !dd.classList.contains("hidden") && !ev.target.closest("#profileWrap")) closeProfileDropdown();
+});
 
 // Admin dashboard wiring.
-$("adminBtn").addEventListener("click", openAdmin);
 $("adminBackBtn").addEventListener("click", closeAdmin);
 $("maintSaveBtn").addEventListener("click", saveAdminSettings);
 $("adminUserSearch").addEventListener("input", renderAdminUsers);

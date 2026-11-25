@@ -181,6 +181,7 @@ def _prev_month(year: int, mon: int) -> tuple[int, int]:
 def user_out(u: User) -> dict:
     return {"id": u.id, "username": u.username,
             "email": u.email,
+            "picture": u.picture or None,
             "provider": u.auth_provider or "google",
             "role": adminmod.effective_role(u),
             "support_until": (u.support_until.isoformat()
@@ -263,6 +264,13 @@ def google_login(payload: GoogleIn, db: Session = Depends(get_db)):
     if email == adminmod.ADMIN_EMAIL:
         user.role = "admin"
         user.support_until = None
+    # Google profile photo (ID token "picture" claim) — shown as the
+    # header avatar. Only overwritten when the token actually carries
+    # one, so an account without a photo keeps picture NULL (frontend
+    # falls back to an initial-letter avatar).
+    pic = (info.get("picture") or "").strip()
+    if pic:
+        user.picture = pic
     user.last_login_at = rem.now_dhaka()
     db.commit()
     db.refresh(user)

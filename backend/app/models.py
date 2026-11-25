@@ -20,6 +20,11 @@ class User(Base):
     password_hash = Column(String, nullable=True)
     email = Column(String, nullable=True, unique=True, index=True)
     google_sub = Column(String, nullable=True, unique=True, index=True)
+    # Google profile photo URL from the ID token ("picture" claim).
+    # May be NULL when the Google account has no photo — the frontend
+    # then falls back to an initial-letter avatar. Updated on every
+    # Google sign-in, so a changed photo is picked up at next login.
+    picture = Column(String, nullable=True)
     auth_provider = Column(String, nullable=False, default="google")
     created_at = Column(DateTime, nullable=False)
     # Admin roles (v10): "user" (normal), "support" (time-limited
