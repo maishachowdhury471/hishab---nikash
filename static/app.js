@@ -32,7 +32,9 @@ const I18N = {
     amountInvalid: "টাকার পরিমাণ ০ বা তার কম হতে পারে না",
     saveFailedGeneric: "তথ্যটি ঠিক নেই, আবার দেখে নিন",
     zeroDayBtn: "আজ কোনো খরচ/আয় নেই",
+    zeroDayBtnPast: "এই দিনে কোনো খরচ/আয় নেই",
     zeroDayLabel: "— আজ কোনো খরচ/আয় নেই —",
+    zeroDayLabelPast: "— এই দিনে কোনো খরচ/আয় নেই —",
     dailyList: "এই মাসের হিসাব", emptyList: "এই মাসে এখনো কোনো হিসাব নেই।",
     summaryTitle: "মাসের সারসংক্ষেপ", adviceTitle: "AI পরামর্শ",
     compareTitle: "গত মাসের সাথে তুলনা", colCategory: "খাত", colThis: "এই মাস", colLast: "গত মাস", colDiff: "পার্থক্য",
@@ -129,7 +131,9 @@ const I18N = {
     amountInvalid: "The amount cannot be 0 or less",
     saveFailedGeneric: "Something in the entry is not right — please check it again.",
     zeroDayBtn: "No expense or income today",
+    zeroDayBtnPast: "No expense or income on this day",
     zeroDayLabel: "— No expense or income today —",
+    zeroDayLabelPast: "— No expense or income on this day —",
     dailyList: "This month's entries", emptyList: "No entries yet this month.",
     summaryTitle: "Month summary", adviceTitle: "AI Advice",
     compareTitle: "Compare with last month", colCategory: "Category", colThis: "This month", colLast: "Last month", colDiff: "Difference",
@@ -1386,12 +1390,21 @@ function queueZeroDayDelete(day) {
     savePendingQueue(q);
   }
 }
+/* The date the zero-day button acts on (v10.15): the date picked in the
+   entry form, NOT always today — Maisha set yesterday's date, tapped the
+   button, and it marked today instead. Empty/invalid falls back to today. */
+function selectedZeroDay() {
+  const v = $("entryDate") && $("entryDate").value;
+  return /^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : localTodayStr();
+}
 async function markZeroDay() {
   if (!getToken()) return;
-  const day = localTodayStr();
+  const day = selectedZeroDay();
+  const today = localTodayStr();
+  if (day > today) return; // future days cannot be marked (server 400s them too)
   if (zeroDaysCache.includes(day)) return; // already marked
   if (entriesCache.some((e) => e.date === day)) return; // has entries
-  // A queued delete for today (marked offline, deleted offline) is
+  // A queued delete for that day (marked offline, deleted offline) is
   // superseded by marking again — drop it instead of queueing both.
   let queue = loadPendingQueue();
   if (queue.some((o) => o.op === "zero_day_delete" && o.date === day)) {
@@ -1405,7 +1418,9 @@ async function markZeroDay() {
     renderAll();
     updateOfflineBanner();
     checkReminders();
-    cancelLocalReminder(); // today is done — no 09:00 reminder for it
+    // Only a mark for TODAY cancels today's 09:00 reminder — marking a
+    // past day must not silence the reminder for today (v10.15).
+    if (day === today) cancelLocalReminder();
   };
   if (!isOnline()) {
     queue.push({ op: "zero_day", date: day });
@@ -1446,7 +1461,7 @@ $("zeroDayBtn").addEventListener("click", markZeroDay);
 function openZeroDayDeleteModal(day) {
   pendingDeleteZeroDay = day;
   const box = $("deleteModalEntry");
-  box.innerHTML = `<div class="font-semibold">${t("zeroDayLabel")}</div>`
+  box.innerHTML = `<div class="font-semibold">${day === localTodayStr() ? t("zeroDayLabel") : t("zeroDayLabelPast")}</div>`
     + `<div class="font-bold mt-1">${fmtDate(day)}</div>`;
   const modal = $("deleteModal");
   modal.classList.remove("hidden");
@@ -1507,7 +1522,7 @@ function prefillFromParsed(p) {
   setType(p.type || "expense");
   if (p.amount != null) $("amount").value = p.amount;
   if (p.category && CATS[p.type || "expense"].includes(p.category)) $("category").value = p.category;
-  if (p.date) $("entryDate").value = p.date;
+  if (p.date) { $("entryDate").value = p.date; updateZeroDayBtn(); }
   if (p.note) $("note").value = p.note;
   const box = $("aiResult");
   box.classList.remove("hidden");
@@ -1570,17 +1585,25 @@ function renderAll() {
   renderReminderSection();
   updateZeroDayBtn();
 }
-/* The "আজ কোনো খরচ/আয় নেই" button (v10.9): only for TODAY, only
-   while today has neither entries nor a zero-day mark yet. */
+/* The "কোনো খরচ/আয় নেই" button (v10.9, v10.15): it acts on the date
+   picked in the entry form, not always today. It shows only while that
+   picked day (in the month being viewed, so the caches can judge it)
+   has neither entries nor a zero-day mark yet, and is never a future day.
+   The label names which day it will mark — "আজ..." for today,
+   "এই দিনে..." for a past day. */
 function updateZeroDayBtn() {
   const btn = $("zeroDayBtn");
   if (!btn) return;
   const today = localTodayStr();
-  const show = curMonth === today.slice(0, 7)
-    && !entriesCache.some((e) => e.date === today)
-    && !zeroDaysCache.includes(today);
+  const day = selectedZeroDay();
+  const show = day <= today
+    && curMonth === day.slice(0, 7)
+    && !entriesCache.some((e) => e.date === day)
+    && !zeroDaysCache.includes(day);
   btn.classList.toggle("hidden", !show);
+  if (show) btn.textContent = day === today ? t("zeroDayBtn") : t("zeroDayBtnPast");
 }
+$("entryDate").addEventListener("change", updateZeroDayBtn);
 function renderList() {
   const list = $("entryList");
   list.innerHTML = "";
@@ -1626,7 +1649,7 @@ function renderList() {
       row.className = "flex items-center justify-between py-2 gap-2";
       row.innerHTML = `
         <div class="min-w-0 flex-1">
-          <div class="font-medium text-gray-500 break-words">${t("zeroDayLabel")}${pending ? ` <span class="inline-block align-middle text-[11px] font-semibold bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 whitespace-nowrap">${t("pendingTag")}</span>` : ""}</div>
+          <div class="font-medium text-gray-500 break-words">${day === localTodayStr() ? t("zeroDayLabel") : t("zeroDayLabelPast")}${pending ? ` <span class="inline-block align-middle text-[11px] font-semibold bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 whitespace-nowrap">${t("pendingTag")}</span>` : ""}</div>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <button class="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-3 py-2 min-h-[40px]" data-act="delZero">${t("del")}</button>
